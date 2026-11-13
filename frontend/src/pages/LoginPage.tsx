@@ -180,6 +180,10 @@ export function LoginPage({ onAuthenticated }: Props) {
         </aside>
 
         <section className={`login-card ${step === "register" ? "registration-card" : ""}`}>
+          <div className="auth-tabs" role="tablist">
+            <button role="tab" aria-selected={step === "register"} className={step === "register" ? "active" : ""} type="button" onClick={() => switchStep("register")}><UserPlus size={16} /> {t("auth.createAccount")}</button>
+            <button role="tab" aria-selected={step !== "register"} className={step !== "register" ? "active" : ""} type="button" onClick={() => { setEmail((current) => current || registration.email); switchStep("login"); }}><KeyRound size={16} /> {t("auth.signIn")}</button>
+          </div>
           <div className="login-card-icon">
             {step === "register" ? <UserPlus size={25} /> : step === "login" ? <Mail size={25} /> : <KeyRound size={25} />}
           </div>
