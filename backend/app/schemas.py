@@ -1,5 +1,6 @@
 import uuid
-from datetime import datetime
+from datetime import date, datetime
+from decimal import Decimal
 from typing import Literal
 
 import re
@@ -265,4 +266,84 @@ class DashboardSummary(BaseModel):
     approved_cases: int
     status_counts: dict[str, int]
     recent_work_orders: list[WorkOrderRead]
+
+
+InvoiceItemType = Literal["part", "labor", "other"]
+InvoiceStatus = Literal["issued", "partially_paid", "paid", "cancelled"]
+PaymentMethod = Literal["cash", "card_pos", "bank_transfer", "other"]
+
+
+class InvoiceLineCreate(BaseModel):
+    item_type: InvoiceItemType
+    description: str = Field(min_length=2, max_length=240)
+    quantity: Decimal = Field(gt=0, le=100_000, decimal_places=2)
+    unit_price: Decimal = Field(ge=0, le=100_000_000, decimal_places=2)
+
+
+class InvoiceCreate(BaseModel):
+    line_items: list[InvoiceLineCreate] = Field(min_length=1, max_length=100)
+    discount_amount: Decimal = Field(default=Decimal("0"), ge=0, le=100_000_000, decimal_places=2)
+    tax_rate: Decimal = Field(default=Decimal("20"), ge=0, le=100, decimal_places=2)
+    notes: str | None = Field(default=None, max_length=2000)
+    due_date: date | None = None
+
+
+class InvoiceLineRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    item_type: InvoiceItemType
+    description: str
+    quantity: Decimal
+    unit_price: Decimal
+    line_total: Decimal
+
+
+class PaymentCreate(BaseModel):
+    amount: Decimal = Field(gt=0, le=100_000_000, decimal_places=2)
+    method: PaymentMethod
+    reference: str | None = Field(default=None, max_length=120)
+    notes: str | None = Field(default=None, max_length=1000)
+
+
+class PaymentRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    amount: Decimal
+    method: PaymentMethod
+    reference: str | None
+    notes: str | None
+    received_at: datetime
+
+
+class InvoiceRead(BaseModel):
+    id: uuid.UUID
+    work_order_id: uuid.UUID
+    invoice_number: str
+    status: InvoiceStatus
+    currency: str
+    subtotal: Decimal
+    discount_amount: Decimal
+    tax_rate: Decimal
+    tax_amount: Decimal
+    total_amount: Decimal
+    paid_amount: Decimal
+    balance_due: Decimal
+    notes: str | None
+    issued_at: datetime
+    due_date: date | None
+    created_at: datetime
+    line_items: list[InvoiceLineRead]
+    payments: list[PaymentRead]
+
+
+class FinanceSummary(BaseModel):
+    invoiced_total: Decimal
+    collected_total: Decimal
+    outstanding_total: Decimal
+    total_invoices: int
+    paid_invoices: int
+    partially_paid_invoices: int
+    overdue_invoices: int
 

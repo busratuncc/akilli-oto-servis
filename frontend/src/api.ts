@@ -11,6 +11,10 @@ import type {
   RegistrationPayload,
   ProfileUpdatePayload,
   AuditEvent,
+  FinanceSummary,
+  Invoice,
+  InvoiceCreatePayload,
+  PaymentCreatePayload,
 } from "./types";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000/api";
@@ -84,6 +88,18 @@ export const api = {
   updateWorkOrder: (id: string, payload: Record<string, unknown>) =>
     request<WorkOrder>(`/work-orders/${id}`, {
       method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+  listInvoices: () => request<Invoice[]>("/invoices"),
+  financeSummary: () => request<FinanceSummary>("/finance/summary"),
+  createInvoice: (workOrderId: string, payload: InvoiceCreatePayload) =>
+    request<Invoice>(`/work-orders/${workOrderId}/invoice`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  recordPayment: (invoiceId: string, payload: PaymentCreatePayload) =>
+    request<Invoice>(`/invoices/${invoiceId}/payments`, {
+      method: "POST",
       body: JSON.stringify(payload),
     }),
   extractionPreview: (text: string) =>

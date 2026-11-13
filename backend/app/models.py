@@ -1,8 +1,9 @@
 import uuid
-from datetime import datetime
+from datetime import date, datetime
+from decimal import Decimal
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String, Text, UniqueConstraint, func
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, JSON, Numeric, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -56,6 +57,9 @@ class WorkOrder(Base):
     vehicle: Mapped[Vehicle] = relationship(back_populates="work_orders")
     dtc_codes: Mapped[list["DtcCode"]] = relationship(
         back_populates="work_order", cascade="all, delete-orphan"
+    )
+    invoice: Mapped["Invoice | None"] = relationship(
+        back_populates="work_order", cascade="all, delete-orphan", uselist=False
     )
 
 
@@ -133,6 +137,78 @@ class AuditEvent(Base):
     )
 
     user: Mapped[User] = relationship(back_populates="audit_events")
+
+
+class Invoice(Base):
+    __tablename__ = "invoices"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    owner_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    work_order_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("work_orders.id", ondelete="CASCADE"),
+        unique=True,
+        index=True,
+    )
+    invoice_number: Mapped[str] = mapped_column(String(32), unique=True, index=True)
+    status: Mapped[str] = mapped_column(String(24), default="issued", index=True)
+    currency: Mapped[str] = mapped_column(String(3), default="TRY")
+    subtotal: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+    discount_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
+    tax_rate: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=20)
+    tax_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
+    total_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    work_order: Mapped[WorkOrder] = relationship(back_populates="invoice")
+    line_items: Mapped[list["InvoiceLineItem"]] = relationship(
+        back_populates="invoice", cascade="all, delete-orphan"
+    )
+    payments: Mapped[list["Payment"]] = relationship(
+        back_populates="invoice", cascade="all, delete-orphan"
+    )
+
+
+class InvoiceLineItem(Base):
+    __tablename__ = "invoice_line_items"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    invoice_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("invoices.id", ondelete="CASCADE"), index=True
+    )
+    item_type: Mapped[str] = mapped_column(String(20))
+    description: Mapped[str] = mapped_column(String(240))
+    quantity: Mapped[Decimal] = mapped_column(Numeric(10, 2))
+    unit_price: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+    line_total: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    invoice: Mapped[Invoice] = relationship(back_populates="line_items")
+
+
+class Payment(Base):
+    __tablename__ = "payments"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    invoice_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("invoices.id", ondelete="CASCADE"), index=True
+    )
+    created_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+    method: Mapped[str] = mapped_column(String(24), index=True)
+    reference: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    invoice: Mapped[Invoice] = relationship(back_populates="payments")
 
 
 class OTPChallenge(Base):

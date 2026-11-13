@@ -2,7 +2,7 @@
 
 Türkçe servis anlatımlarını yapılandırılmış iş emirlerine dönüştürmek, atölyedeki servis sürecini izlemek, OBD-II kodlarını kaydetmek ve geçmiş vakalar arasında arama yapmak için geliştirilen tez uygulaması.
 
-## Mevcut uygulama (v0.6)
+## Mevcut uygulama (v0.7)
 
 - Atölye özetlerini ve iş emri dağılımını gösteren dashboard
 - Anonim kodla araç kaydı ve araç servis geçmişi
@@ -24,6 +24,12 @@ Türkçe servis anlatımlarını yapılandırılmış iş emirlerine dönüştü
 - Araçlar, iş emirleri, dashboard ve vaka aramaları için hesap bazlı veri izolasyonu
 - Profil/iletişim tercihi güncelleme ekranı
 - Giriş, profil, araç ve iş emri değişiklikleri için denetim kaydı
+- İş emrinden parça, işçilik ve diğer kalemlerle fatura oluşturma
+- Sunucu tarafında hassas ondalık hesaplama, indirim ve KDV kontrolü
+- Nakit, harici POS, banka havalesi ve diğer yöntemlerle kısmi/tam ödeme takibi
+- Faturalanan, tahsil edilen, bekleyen ve vadesi geçen tutar özeti
+- Fazla ödemeyi engelleyen bakiye kontrolü ve eşzamanlı tahsilat kilidi
+- Fatura ve ödeme hareketleri için hesap bazlı veri izolasyonu ve denetim kaydı
 - Masaüstü ve mobil ekranlara uyumlu React arayüzü
 
 ## Başlangıç kapsamı
@@ -60,7 +66,13 @@ Windows için aynı işlemi yapan yardımcı komut:
 5. Sağlık kontrolü: http://localhost:8000/api/health
 6. Geliştirme e-posta kutusu (Mailpit): http://localhost:8026
 
-Uygulama menüsü dört bölümden oluşur: **Gösterge paneli**, **Araçlar**, **İş emirleri** ve **Akıllı asistan**.
+Uygulama menüsü altı bölümden oluşur: **Gösterge paneli**, **Araçlar**, **İş emirleri**, **Finans**, **Akıllı asistan** ve **Hesap ayarları**.
+
+### Fatura ve ödeme takibi
+
+Finans ekranında bir iş emri için parça, işçilik ve diğer maliyet kalemleri eklenir. Ara toplam, indirim, KDV ve genel toplam sunucuda yeniden hesaplanır. Bir faturaya birden fazla kısmi ödeme girilebilir; bakiye sıfıra ulaştığında fatura otomatik olarak ödendi durumuna geçer. Kalan bakiyeyi aşan ödeme kabul edilmez.
+
+`Kart / harici POS` yöntemi gerçek kart çekimi yapmaz; yalnızca ayrı bir POS cihazında alınmış ödemenin muhasebe kaydını tutar. Uygulama kart numarası, son kullanma tarihi, CVV veya PIN istemez ve saklamaz. Gerçek ödeme sağlayıcısı eklendiğinde sağlayıcının barındırdığı ödeme sayfası kullanılmalıdır. Bu modüldeki kayıtlar tez prototipinin operasyonel finans takibidir; resmi e-Fatura/e-Arşiv entegrasyonu değildir.
 
 ### Kayıt ve yerel kodla giriş
 

@@ -1,4 +1,6 @@
 import uuid
+from datetime import date, datetime, timezone
+from decimal import Decimal
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile, status
@@ -9,7 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 from starlette.concurrency import run_in_threadpool
 
-from app import auth, ml, models, schemas, services
+from app import auth, finance, ml, models, schemas, services
 from app.config import settings
 from app.database import SessionLocal, get_db
 
@@ -68,6 +70,32 @@ def get_work_order_or_404(
     if work_order is None:
         raise HTTPException(status_code=404, detail="İş emri bulunamadı")
     return work_order
+
+
+def get_invoice_or_404(
+    invoice_id: uuid.UUID,
+    user_id: uuid.UUID,
+    db: Session,
+    *,
+    lock_for_update: bool = False,
+) -> models.Invoice:
+    query = (
+        select(models.Invoice)
+        .options(
+            selectinload(models.Invoice.line_items),
+            selectinload(models.Invoice.payments),
+        )
+        .where(
+            models.Invoice.id == invoice_id,
+            models.Invoice.owner_id == user_id,
+        )
+    )
+    if lock_for_update:
+        query = query.with_for_update()
+    invoice = db.scalar(query)
+    if invoice is None:
+        raise HTTPException(status_code=404, detail="Fatura bulunamadı")
+    return invoice
 
 
 @app.get(f"{settings.api_prefix}/health")
@@ -434,6 +462,185 @@ def update_work_order(
     )
     db.commit()
     return get_work_order_or_404(work_order_id, request.state.user.id, db)
+
+
+@app.post(
+    f"{settings.api_prefix}/work-orders/{{work_order_id}}/invoice",
+    response_model=schemas.InvoiceRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_invoice(
+    work_order_id: uuid.UUID,
+    payload: schemas.InvoiceCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> schemas.InvoiceRead:
+    work_order = get_work_order_or_404(work_order_id, request.state.user.id, db)
+    if db.scalar(select(models.Invoice.id).where(models.Invoice.work_order_id == work_order.id)):
+        raise HTTPException(status_code=409, detail="Bu iş emri için zaten fatura oluşturulmuş")
+
+    try:
+        line_totals, subtotal, tax_amount, total_amount = finance.calculate_invoice(
+            payload.line_items,
+            payload.discount_amount,
+            payload.tax_rate,
+        )
+    except finance.FinanceValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    invoice_id = uuid.uuid4()
+    invoice = models.Invoice(
+        id=invoice_id,
+        owner_id=request.state.user.id,
+        work_order_id=work_order.id,
+        invoice_number=f"FTR-{datetime.now(timezone.utc).year}-{invoice_id.hex[:8].upper()}",
+        subtotal=subtotal,
+        discount_amount=finance.money(payload.discount_amount),
+        tax_rate=payload.tax_rate,
+        tax_amount=tax_amount,
+        total_amount=total_amount,
+        notes=payload.notes,
+        due_date=payload.due_date,
+        line_items=[
+            models.InvoiceLineItem(
+                item_type=item.item_type,
+                description=item.description.strip(),
+                quantity=item.quantity,
+                unit_price=item.unit_price,
+                line_total=line_totals[index],
+            )
+            for index, item in enumerate(payload.line_items)
+        ],
+    )
+    db.add(invoice)
+    try:
+        db.flush()
+        auth.add_audit_event(
+            db,
+            request.state.user.id,
+            "invoice.created",
+            entity_type="invoice",
+            entity_id=invoice.id,
+            event_data={"invoice_number": invoice.invoice_number, "total": str(total_amount)},
+        )
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Bu iş emri için zaten fatura oluşturulmuş") from exc
+    return finance.to_read(get_invoice_or_404(invoice.id, request.state.user.id, db))
+
+
+@app.get(f"{settings.api_prefix}/invoices", response_model=list[schemas.InvoiceRead])
+def list_invoices(request: Request, db: Session = Depends(get_db)) -> list[schemas.InvoiceRead]:
+    query = (
+        select(models.Invoice)
+        .options(
+            selectinload(models.Invoice.line_items),
+            selectinload(models.Invoice.payments),
+        )
+        .where(models.Invoice.owner_id == request.state.user.id)
+        .order_by(models.Invoice.created_at.desc())
+    )
+    return [finance.to_read(invoice) for invoice in db.scalars(query).unique().all()]
+
+
+@app.get(f"{settings.api_prefix}/invoices/{{invoice_id}}", response_model=schemas.InvoiceRead)
+def get_invoice(
+    invoice_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> schemas.InvoiceRead:
+    return finance.to_read(get_invoice_or_404(invoice_id, request.state.user.id, db))
+
+
+@app.post(
+    f"{settings.api_prefix}/invoices/{{invoice_id}}/payments",
+    response_model=schemas.InvoiceRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def record_payment(
+    invoice_id: uuid.UUID,
+    payload: schemas.PaymentCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> schemas.InvoiceRead:
+    invoice = get_invoice_or_404(
+        invoice_id,
+        request.state.user.id,
+        db,
+        lock_for_update=True,
+    )
+    if invoice.status == "cancelled":
+        raise HTTPException(status_code=409, detail="İptal edilmiş faturaya ödeme eklenemez")
+    remaining = finance.balance_due(invoice)
+    amount = finance.money(payload.amount)
+    if amount > remaining:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Ödeme kalan {remaining} TRY tutarını aşamaz",
+        )
+
+    payment = models.Payment(
+        invoice_id=invoice.id,
+        created_by_id=request.state.user.id,
+        amount=amount,
+        method=payload.method,
+        reference=payload.reference.strip() if payload.reference else None,
+        notes=payload.notes.strip() if payload.notes else None,
+    )
+    invoice.payments.append(payment)
+    finance.update_status(invoice)
+    db.add(payment)
+    db.flush()
+    auth.add_audit_event(
+        db,
+        request.state.user.id,
+        "payment.recorded",
+        entity_type="payment",
+        entity_id=payment.id,
+        event_data={
+            "invoice_number": invoice.invoice_number,
+            "amount": str(amount),
+            "method": payload.method,
+        },
+    )
+    db.commit()
+    return finance.to_read(get_invoice_or_404(invoice.id, request.state.user.id, db))
+
+
+@app.get(f"{settings.api_prefix}/finance/summary", response_model=schemas.FinanceSummary)
+def finance_summary(request: Request, db: Session = Depends(get_db)) -> schemas.FinanceSummary:
+    invoices = list(
+        db.scalars(
+            select(models.Invoice)
+            .options(selectinload(models.Invoice.payments))
+            .where(models.Invoice.owner_id == request.state.user.id)
+        ).unique().all()
+    )
+    active_invoices = [invoice for invoice in invoices if invoice.status != "cancelled"]
+    invoiced_total = finance.money(
+        sum((invoice.total_amount for invoice in active_invoices), Decimal("0"))
+    )
+    collected_total = finance.money(
+        sum((finance.paid_amount(invoice) for invoice in active_invoices), Decimal("0"))
+    )
+    today = date.today()
+    return schemas.FinanceSummary(
+        invoiced_total=invoiced_total,
+        collected_total=collected_total,
+        outstanding_total=finance.money(invoiced_total - collected_total),
+        total_invoices=len(active_invoices),
+        paid_invoices=sum(invoice.status == "paid" for invoice in active_invoices),
+        partially_paid_invoices=sum(
+            invoice.status == "partially_paid" for invoice in active_invoices
+        ),
+        overdue_invoices=sum(
+            invoice.due_date is not None
+            and invoice.due_date < today
+            and finance.balance_due(invoice) > Decimal("0")
+            for invoice in active_invoices
+        ),
+    )
 
 
 @app.get(f"{settings.api_prefix}/dashboard/summary", response_model=schemas.DashboardSummary)

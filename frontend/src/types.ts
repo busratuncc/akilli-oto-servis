@@ -140,3 +140,76 @@ export type AuthMessage = {
   local_code?: string | null;
 };
 
+export type InvoiceItemType = "part" | "labor" | "other";
+export type InvoiceStatus = "issued" | "partially_paid" | "paid" | "cancelled";
+export type PaymentMethod = "cash" | "card_pos" | "bank_transfer" | "other";
+
+export type InvoiceLine = {
+  id: string;
+  item_type: InvoiceItemType;
+  description: string;
+  quantity: string;
+  unit_price: string;
+  line_total: string;
+};
+
+export type Payment = {
+  id: string;
+  amount: string;
+  method: PaymentMethod;
+  reference: string | null;
+  notes: string | null;
+  received_at: string;
+};
+
+export type Invoice = {
+  id: string;
+  work_order_id: string;
+  invoice_number: string;
+  status: InvoiceStatus;
+  currency: string;
+  subtotal: string;
+  discount_amount: string;
+  tax_rate: string;
+  tax_amount: string;
+  total_amount: string;
+  paid_amount: string;
+  balance_due: string;
+  notes: string | null;
+  issued_at: string;
+  due_date: string | null;
+  created_at: string;
+  line_items: InvoiceLine[];
+  payments: Payment[];
+};
+
+export type FinanceSummary = {
+  invoiced_total: string;
+  collected_total: string;
+  outstanding_total: string;
+  total_invoices: number;
+  paid_invoices: number;
+  partially_paid_invoices: number;
+  overdue_invoices: number;
+};
+
+export type InvoiceCreatePayload = {
+  line_items: Array<{
+    item_type: InvoiceItemType;
+    description: string;
+    quantity: string;
+    unit_price: string;
+  }>;
+  discount_amount: string;
+  tax_rate: string;
+  notes: string | null;
+  due_date: string | null;
+};
+
+export type PaymentCreatePayload = {
+  amount: string;
+  method: PaymentMethod;
+  reference: string | null;
+  notes: string | null;
+};
+

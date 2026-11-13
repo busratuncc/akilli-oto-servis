@@ -3,6 +3,7 @@ import {
   CarFront,
   ClipboardList,
   Gauge,
+  ReceiptText,
   Settings,
   ShieldCheck,
   Wrench,
@@ -14,6 +15,7 @@ const links = [
   { to: "/", label: "nav.dashboard", icon: Gauge, end: true },
   { to: "/vehicles", label: "nav.vehicles", icon: CarFront },
   { to: "/work-orders", label: "nav.orders", icon: ClipboardList },
+  { to: "/finance", label: "nav.finance", icon: ReceiptText },
   { to: "/assistant", label: "nav.assistant", icon: Bot },
   { to: "/settings", label: "nav.settings", icon: Settings },
 ];
