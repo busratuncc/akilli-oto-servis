@@ -33,6 +33,15 @@
 - Kabul/red bilgisi
 - Oluşturma ve onay zamanı
 
+## Ses ve embedding işleme
+
+- Tarayıcıdan gelen ham ses yalnızca transkripsiyon sırasında geçici dosya olarak tutulur.
+- `retain_audio=false` varsayılanında geçici dosya işlem sonunda silinir.
+- Doğrulanacak transkript iş emrinin `voice_transcript` alanına kullanıcı onayıyla aktarılır.
+- İş emri arama metni 384 boyutlu `multilingual-e5-small` embedding'ine dönüştürülür.
+- pgvector cosine benzerliği ile bulunan sonuç, anahtar kelime puanıyla hibrit olarak sıralanır.
+- Benzerlik puanı arıza teşhisi veya güven olasılığı değildir; yalnızca sıralama sinyalidir.
+
 ## Araştırma bölünmesi
 
 - Eğitim/geliştirme ve test vakaları birbirinden ayrılmalıdır.

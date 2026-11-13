@@ -19,7 +19,7 @@
 - Teknik terimler sözlüğü
 - Altın standart elle doğrulanmış test kümesi
 
-## Faz 3 - Türkçe konuşma tanıma
+## Faz 3 - Türkçe konuşma tanıma (uygulama entegrasyonu tamamlandı)
 
 - Ses yükleme/kayıt arayüzü
 - Whisper tabanlı transkripsiyon servisi
@@ -33,7 +33,7 @@
 - Usta düzeltmelerinin kayıt altına alınması
 - Alan bazında precision, recall ve F1
 
-## Faz 5 - Hibrit vaka arama
+## Faz 5 - Hibrit vaka arama (uygulama entegrasyonu tamamlandı)
 
 - PostgreSQL tam metin arama
 - Çok dilli embedding üretimi

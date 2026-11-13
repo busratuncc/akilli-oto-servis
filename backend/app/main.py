@@ -1,12 +1,14 @@
 import uuid
+from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
+from starlette.concurrency import run_in_threadpool
 
-from app import models, schemas, services
+from app import ml, models, schemas, services
 from app.config import settings
 from app.database import get_db
 
@@ -102,6 +104,7 @@ def create_work_order(payload: schemas.WorkOrderCreate, db: Session = Depends(ge
         )
         for item in payload.dtc_codes
     ]
+    services.refresh_work_order_embedding(work_order)
     db.add(work_order)
     if payload.voice_transcript:
         db.flush()
@@ -166,6 +169,7 @@ def update_work_order(
         ]
 
     work_order.search_text = services.build_search_text_from_order(work_order)
+    services.refresh_work_order_embedding(work_order)
     db.commit()
     return get_work_order_or_404(work_order_id, db)
 
@@ -212,15 +216,79 @@ def preview_extraction(payload: schemas.ExtractionRequest) -> schemas.Extraction
     return services.extract_preview(payload.text)
 
 
+@app.get(f"{settings.api_prefix}/ai/status", response_model=schemas.AIRuntimeStatus)
+def ai_runtime_status() -> schemas.AIRuntimeStatus:
+    return schemas.AIRuntimeStatus.model_validate(ml.runtime_status())
+
+
+@app.post(f"{settings.api_prefix}/audio/transcribe", response_model=schemas.TranscriptionResponse)
+async def transcribe_audio(
+    audio: UploadFile = File(...),
+    retain_audio: bool = Form(default=False),
+) -> schemas.TranscriptionResponse:
+    content_type = (audio.content_type or "").split(";", maxsplit=1)[0].lower()
+    suffix_by_type = {
+        "audio/webm": ".webm",
+        "audio/wav": ".wav",
+        "audio/x-wav": ".wav",
+        "audio/mpeg": ".mp3",
+        "audio/mp4": ".m4a",
+        "audio/ogg": ".ogg",
+        "audio/flac": ".flac",
+    }
+    if content_type not in suffix_by_type:
+        raise HTTPException(
+            status_code=415,
+            detail="Desteklenen ses türleri: WebM, WAV, MP3, M4A, OGG ve FLAC",
+        )
+
+    storage = Path(settings.audio_storage_path)
+    storage.mkdir(parents=True, exist_ok=True)
+    target = storage / f"{uuid.uuid4().hex}{suffix_by_type[content_type]}"
+    max_bytes = settings.max_audio_size_mb * 1024 * 1024
+    total_size = 0
+
+    try:
+        with target.open("wb") as output:
+            while chunk := await audio.read(1024 * 1024):
+                total_size += len(chunk)
+                if total_size > max_bytes:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"Ses kaydı en fazla {settings.max_audio_size_mb} MB olabilir",
+                    )
+                output.write(chunk)
+
+        result = await run_in_threadpool(ml.transcribe_audio, target)
+        if not result.text:
+            raise HTTPException(status_code=422, detail="Ses kaydında konuşma algılanamadı")
+        return schemas.TranscriptionResponse(
+            transcript=result.text,
+            language=result.language,
+            language_probability=result.language_probability,
+            duration_seconds=result.duration_seconds,
+            provider=result.provider,
+            audio_retained=retain_audio,
+        )
+    except ml.TranscriptionUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    finally:
+        await audio.close()
+        if not retain_audio:
+            target.unlink(missing_ok=True)
+
+
 @app.post(f"{settings.api_prefix}/cases/search", response_model=list[schemas.CaseSearchResult])
 def search_cases(payload: schemas.CaseSearchRequest, db: Session = Depends(get_db)) -> list[schemas.CaseSearchResult]:
     results = services.search_cases(db, payload)
     return [
         schemas.CaseSearchResult(
-            work_order=schemas.WorkOrderRead.model_validate(work_order),
-            vehicle=schemas.VehicleRead.model_validate(work_order.vehicle),
-            match_reason=reason,
+            work_order=schemas.WorkOrderRead.model_validate(match.work_order),
+            vehicle=schemas.VehicleRead.model_validate(match.work_order.vehicle),
+            match_reason=match.reason,
+            similarity_score=round(match.score, 4),
+            search_method=match.method,
         )
-        for work_order, reason in results
+        for match in results
     ]
 

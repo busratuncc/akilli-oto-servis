@@ -1,9 +1,10 @@
 import re
+from dataclasses import dataclass
 
 from sqlalchemy import Select, or_, select
 from sqlalchemy.orm import Session, selectinload
 
-from app import models, schemas
+from app import ml, models, schemas
 
 DTC_PATTERN = re.compile(r"\b[PBCU][0-3][0-9A-F]{3}\b", re.IGNORECASE)
 THOUSAND_MILEAGE_PATTERN = re.compile(r"\b(\d{1,3})\s*bin\b", re.IGNORECASE)
@@ -49,6 +50,14 @@ ACTION_KEYWORDS = (
 )
 
 
+@dataclass
+class CaseMatch:
+    work_order: models.WorkOrder
+    reason: str
+    score: float
+    method: str
+
+
 def build_search_text(payload: schemas.WorkOrderCreate) -> str:
     values = [
         payload.customer_complaint,
@@ -73,6 +82,12 @@ def build_search_text_from_order(work_order: models.WorkOrder) -> str:
         " ".join(item.code for item in work_order.dtc_codes),
     ]
     return " ".join(value.strip() for value in values if value and value.strip())
+
+
+def refresh_work_order_embedding(work_order: models.WorkOrder) -> str:
+    vector, provider = ml.embed_text(build_search_text_from_order(work_order), kind="passage")
+    work_order.embedding = vector
+    return provider
 
 
 def dtc_description(code: str) -> str | None:
@@ -142,38 +157,75 @@ def extract_preview(text: str) -> schemas.ExtractionPreview:
     )
 
 
-def search_cases(db: Session, payload: schemas.CaseSearchRequest) -> list[tuple[models.WorkOrder, str]]:
-    terms = [term for term in re.split(r"\s+", payload.query.strip()) if len(term) > 1]
-    query: Select[tuple[models.WorkOrder]] = (
-        select(models.WorkOrder)
-        .options(selectinload(models.WorkOrder.dtc_codes), selectinload(models.WorkOrder.vehicle))
-        .order_by(models.WorkOrder.created_at.desc())
+def _base_case_query(payload: schemas.CaseSearchRequest) -> Select[tuple[models.WorkOrder]]:
+    query: Select[tuple[models.WorkOrder]] = select(models.WorkOrder).options(
+        selectinload(models.WorkOrder.dtc_codes),
+        selectinload(models.WorkOrder.vehicle),
     )
-
-    filters = []
-    for term in terms[:8]:
-        filters.append(models.WorkOrder.search_text.ilike(f"%{term}%"))
-
+    if payload.approved_only:
+        query = query.where(models.WorkOrder.approved_by_mechanic.is_(True))
     if payload.dtc_code:
-        normalized_code = payload.dtc_code.strip().upper()
-        query = query.join(models.WorkOrder.dtc_codes)
-        query = query.where(models.DtcCode.code == normalized_code)
+        query = query.join(models.WorkOrder.dtc_codes).where(
+            models.DtcCode.code == payload.dtc_code.strip().upper()
+        )
+    return query
 
-    if filters:
-        query = query.where(or_(*filters))
 
-    work_orders = db.scalars(query.limit(payload.limit)).unique().all()
-    results = []
-    for work_order in work_orders:
-        matched_codes = {code.code for code in work_order.dtc_codes}
-        if payload.dtc_code and payload.dtc_code.upper() in matched_codes:
-            reason = f"OBD-II kodu eşleşti: {payload.dtc_code.upper()}"
-        else:
-            matched_terms = [
-                term for term in terms if term.casefold() in (work_order.search_text or "").casefold()
-            ]
-            suffix = f": {', '.join(matched_terms[:3])}" if matched_terms else ""
-            reason = f"Şikâyet veya servis metninde anahtar kelime eşleşmesi{suffix}"
-        results.append((work_order, reason))
-    return results
+def search_cases(db: Session, payload: schemas.CaseSearchRequest) -> list[CaseMatch]:
+    terms = [term for term in re.split(r"\s+", payload.query.strip()) if len(term) > 1]
+    matches: dict[object, CaseMatch] = {}
+    candidate_limit = max(payload.limit * 3, 12)
+
+    if payload.search_mode in {"keyword", "hybrid"}:
+        keyword_query = _base_case_query(payload).order_by(models.WorkOrder.created_at.desc())
+        filters = [models.WorkOrder.search_text.ilike(f"%{term}%") for term in terms[:8]]
+        if filters:
+            keyword_query = keyword_query.where(or_(*filters))
+
+        work_orders = db.scalars(keyword_query.limit(candidate_limit)).unique().all()
+        for work_order in work_orders:
+            normalized_text = (work_order.search_text or "").casefold()
+            matched_terms = [term for term in terms if term.casefold() in normalized_text]
+            matched_codes = {code.code for code in work_order.dtc_codes}
+            dtc_match = bool(
+                payload.dtc_code and payload.dtc_code.strip().upper() in matched_codes
+            )
+            overlap = len(matched_terms) / max(len(terms), 1)
+            score = min(0.95, (0.55 + 0.35 * overlap) if not dtc_match else 0.98)
+            if dtc_match:
+                reason = f"OBD-II kodu eşleşti: {payload.dtc_code.strip().upper()}"
+                method = "dtc"
+            else:
+                suffix = f": {', '.join(matched_terms[:3])}" if matched_terms else ""
+                reason = f"Servis metninde anahtar kelime eşleşmesi{suffix}"
+                method = "keyword"
+            matches[work_order.id] = CaseMatch(work_order, reason, score, method)
+
+    if payload.search_mode in {"semantic", "hybrid"}:
+        query_vector, _provider = ml.embed_text(payload.query, kind="query")
+        distance = models.WorkOrder.embedding.cosine_distance(query_vector).label("distance")
+        semantic_query = _base_case_query(payload).add_columns(distance).where(
+            models.WorkOrder.embedding.is_not(None)
+        )
+        semantic_query = semantic_query.order_by(distance).limit(candidate_limit)
+        semantic_rows = db.execute(semantic_query).unique().all()
+
+        for work_order, distance_value in semantic_rows:
+            similarity = max(0.0, min(1.0, 1.0 - float(distance_value)))
+            if similarity < 0.15:
+                continue
+            existing = matches.get(work_order.id)
+            if existing:
+                existing.score = min(1.0, 0.45 * existing.score + 0.55 * similarity + 0.05)
+                existing.method = "hybrid"
+                existing.reason = f"{existing.reason}; anlamsal benzerlik %{similarity * 100:.0f}"
+            else:
+                matches[work_order.id] = CaseMatch(
+                    work_order=work_order,
+                    reason=f"Servis anlatımıyla anlamsal benzerlik %{similarity * 100:.0f}",
+                    score=similarity,
+                    method="semantic",
+                )
+
+    return sorted(matches.values(), key=lambda item: item.score, reverse=True)[: payload.limit]
 

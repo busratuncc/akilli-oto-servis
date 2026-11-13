@@ -1,18 +1,21 @@
 import type {
   CaseSearchResult,
+  AIRuntimeStatus,
   DashboardSummary,
   ExtractionPreview,
   Vehicle,
   WorkOrder,
+  TranscriptionResult,
 } from "./types";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000/api";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const isFormData = init?.body instanceof FormData;
   const response = await fetch(`${API_URL}${path}`, {
     ...init,
     headers: {
-      "Content-Type": "application/json",
+      ...(isFormData ? {} : { "Content-Type": "application/json" }),
       ...init?.headers,
     },
   });
@@ -46,10 +49,28 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ text }),
     }),
-  searchCases: (query: string, dtcCode?: string) =>
+  aiStatus: () => request<AIRuntimeStatus>("/ai/status"),
+  transcribeAudio: (audio: Blob) => {
+    const form = new FormData();
+    const extension = audio.type.includes("ogg") ? "ogg" : audio.type.includes("wav") ? "wav" : audio.type.includes("flac") ? "flac" : "webm";
+    form.append("audio", audio, `servis-kaydi.${extension}`);
+    form.append("retain_audio", "false");
+    return request<TranscriptionResult>("/audio/transcribe", { method: "POST", body: form });
+  },
+  searchCases: (
+    query: string,
+    dtcCode?: string,
+    searchMode: "hybrid" | "keyword" | "semantic" = "hybrid",
+  ) =>
     request<CaseSearchResult[]>("/cases/search", {
       method: "POST",
-      body: JSON.stringify({ query, dtc_code: dtcCode || null, limit: 5 }),
+      body: JSON.stringify({
+        query,
+        dtc_code: dtcCode || null,
+        limit: 6,
+        search_mode: searchMode,
+        approved_only: false,
+      }),
     }),
 };
 

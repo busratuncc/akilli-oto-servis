@@ -53,6 +53,26 @@ export type CaseSearchResult = {
   work_order: WorkOrder;
   vehicle: Vehicle;
   match_reason: string;
+  similarity_score: number | null;
+  search_method: "keyword" | "semantic" | "hybrid" | "dtc";
+};
+
+export type TranscriptionResult = {
+  transcript: string;
+  language: string;
+  language_probability: number;
+  duration_seconds: number;
+  provider: string;
+  audio_retained: boolean;
+};
+
+export type AIRuntimeStatus = {
+  embedding_model: string;
+  embedding_loaded: boolean;
+  embedding_error: string | null;
+  whisper_model: string;
+  whisper_loaded: boolean;
+  whisper_error: string | null;
 };
 
 export type DashboardSummary = {

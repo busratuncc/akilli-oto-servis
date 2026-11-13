@@ -122,12 +122,34 @@ class CaseSearchRequest(BaseModel):
     query: str = Field(min_length=2)
     dtc_code: str | None = None
     limit: int = Field(default=5, ge=1, le=20)
+    search_mode: Literal["hybrid", "keyword", "semantic"] = "hybrid"
+    approved_only: bool = False
 
 
 class CaseSearchResult(BaseModel):
     work_order: WorkOrderRead
     vehicle: VehicleRead
     match_reason: str
+    similarity_score: float | None = Field(default=None, ge=0, le=1)
+    search_method: Literal["keyword", "semantic", "hybrid", "dtc"] = "keyword"
+
+
+class TranscriptionResponse(BaseModel):
+    transcript: str
+    language: str
+    language_probability: float = Field(ge=0, le=1)
+    duration_seconds: float = Field(ge=0)
+    provider: str
+    audio_retained: bool
+
+
+class AIRuntimeStatus(BaseModel):
+    embedding_model: str
+    embedding_loaded: bool
+    embedding_error: str | None
+    whisper_model: str
+    whisper_loaded: bool
+    whisper_error: str | None
 
 
 class DashboardSummary(BaseModel):
