@@ -51,11 +51,19 @@ app.add_middleware(
 )
 
 
-def get_work_order_or_404(work_order_id: uuid.UUID, db: Session) -> models.WorkOrder:
+def get_work_order_or_404(
+    work_order_id: uuid.UUID,
+    user_id: uuid.UUID,
+    db: Session,
+) -> models.WorkOrder:
     work_order = db.scalar(
         select(models.WorkOrder)
+        .join(models.WorkOrder.vehicle)
         .options(selectinload(models.WorkOrder.dtc_codes))
-        .where(models.WorkOrder.id == work_order_id)
+        .where(
+            models.WorkOrder.id == work_order_id,
+            models.Vehicle.owner_id == user_id,
+        )
     )
     if work_order is None:
         raise HTTPException(status_code=404, detail="İş emri bulunamadı")
@@ -153,7 +161,11 @@ def current_user(request: Request) -> schemas.AuthResponse:
 
 @app.post(f"{settings.api_prefix}/auth/logout", status_code=status.HTTP_204_NO_CONTENT)
 def logout(request: Request, response: Response, db: Session = Depends(get_db)) -> Response:
-    auth.delete_session(db, request.cookies.get(settings.auth_cookie_name))
+    auth.delete_session(
+        db,
+        request.cookies.get(settings.auth_cookie_name),
+        request.state.user.id,
+    )
     response.delete_cookie(settings.auth_cookie_name, path="/")
     response.status_code = status.HTTP_204_NO_CONTENT
     return response
@@ -169,9 +181,50 @@ def update_user_preferences(
     if user is None:
         raise HTTPException(status_code=401, detail="Oturum geçersiz")
     user.preferred_language = payload.preferred_language
+    auth.add_audit_event(
+        db,
+        user.id,
+        "account.language_updated",
+        entity_type="user",
+        entity_id=user.id,
+        event_data={"language": payload.preferred_language},
+    )
     db.commit()
     db.refresh(user)
     return schemas.AuthResponse(user=schemas.AuthUser.model_validate(user))
+
+
+@app.patch(f"{settings.api_prefix}/auth/profile", response_model=schemas.AuthResponse)
+def update_profile(
+    payload: schemas.UserProfileUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> schemas.AuthResponse:
+    user = db.get(models.User, request.state.user.id)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Oturum geçersiz")
+    try:
+        updated = auth.update_profile(db, user, payload)
+    except auth.RegistrationConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return schemas.AuthResponse(user=schemas.AuthUser.model_validate(updated))
+
+
+@app.get(
+    f"{settings.api_prefix}/auth/activity",
+    response_model=list[schemas.AuditEventRead],
+)
+def account_activity(
+    request: Request,
+    db: Session = Depends(get_db),
+) -> list[models.AuditEvent]:
+    query = (
+        select(models.AuditEvent)
+        .where(models.AuditEvent.user_id == request.state.user.id)
+        .order_by(models.AuditEvent.created_at.desc())
+        .limit(50)
+    )
+    return list(db.scalars(query).all())
 
 
 @app.post(
@@ -179,10 +232,23 @@ def update_user_preferences(
     response_model=schemas.VehicleRead,
     status_code=status.HTTP_201_CREATED,
 )
-def create_vehicle(payload: schemas.VehicleCreate, db: Session = Depends(get_db)) -> models.Vehicle:
-    vehicle = models.Vehicle(**payload.model_dump())
+def create_vehicle(
+    payload: schemas.VehicleCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> models.Vehicle:
+    vehicle = models.Vehicle(owner_id=request.state.user.id, **payload.model_dump())
     db.add(vehicle)
     try:
+        db.flush()
+        auth.add_audit_event(
+            db,
+            request.state.user.id,
+            "vehicle.created",
+            entity_type="vehicle",
+            entity_id=vehicle.id,
+            event_data={"anonymous_code": vehicle.anonymous_code},
+        )
         db.commit()
     except IntegrityError as exc:
         db.rollback()
@@ -192,13 +258,27 @@ def create_vehicle(payload: schemas.VehicleCreate, db: Session = Depends(get_db)
 
 
 @app.get(f"{settings.api_prefix}/vehicles", response_model=list[schemas.VehicleRead])
-def list_vehicles(db: Session = Depends(get_db)) -> list[models.Vehicle]:
-    return list(db.scalars(select(models.Vehicle).order_by(models.Vehicle.created_at.desc())).all())
+def list_vehicles(request: Request, db: Session = Depends(get_db)) -> list[models.Vehicle]:
+    query = (
+        select(models.Vehicle)
+        .where(models.Vehicle.owner_id == request.state.user.id)
+        .order_by(models.Vehicle.created_at.desc())
+    )
+    return list(db.scalars(query).all())
 
 
 @app.get(f"{settings.api_prefix}/vehicles/{{vehicle_id}}", response_model=schemas.VehicleRead)
-def get_vehicle(vehicle_id: uuid.UUID, db: Session = Depends(get_db)) -> models.Vehicle:
-    vehicle = db.get(models.Vehicle, vehicle_id)
+def get_vehicle(
+    vehicle_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> models.Vehicle:
+    vehicle = db.scalar(
+        select(models.Vehicle).where(
+            models.Vehicle.id == vehicle_id,
+            models.Vehicle.owner_id == request.state.user.id,
+        )
+    )
     if vehicle is None:
         raise HTTPException(status_code=404, detail="Araç bulunamadı")
     return vehicle
@@ -208,14 +288,28 @@ def get_vehicle(vehicle_id: uuid.UUID, db: Session = Depends(get_db)) -> models.
 def update_vehicle(
     vehicle_id: uuid.UUID,
     payload: schemas.VehicleUpdate,
+    request: Request,
     db: Session = Depends(get_db),
 ) -> models.Vehicle:
-    vehicle = db.get(models.Vehicle, vehicle_id)
+    vehicle = db.scalar(
+        select(models.Vehicle).where(
+            models.Vehicle.id == vehicle_id,
+            models.Vehicle.owner_id == request.state.user.id,
+        )
+    )
     if vehicle is None:
         raise HTTPException(status_code=404, detail="Araç bulunamadı")
 
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(vehicle, field, value)
+    auth.add_audit_event(
+        db,
+        request.state.user.id,
+        "vehicle.updated",
+        entity_type="vehicle",
+        entity_id=vehicle.id,
+        event_data={"fields": sorted(payload.model_fields_set)},
+    )
     db.commit()
     db.refresh(vehicle)
     return vehicle
@@ -226,8 +320,18 @@ def update_vehicle(
     response_model=schemas.WorkOrderRead,
     status_code=status.HTTP_201_CREATED,
 )
-def create_work_order(payload: schemas.WorkOrderCreate, db: Session = Depends(get_db)) -> models.WorkOrder:
-    if db.get(models.Vehicle, payload.vehicle_id) is None:
+def create_work_order(
+    payload: schemas.WorkOrderCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> models.WorkOrder:
+    vehicle = db.scalar(
+        select(models.Vehicle).where(
+            models.Vehicle.id == payload.vehicle_id,
+            models.Vehicle.owner_id == request.state.user.id,
+        )
+    )
+    if vehicle is None:
         raise HTTPException(status_code=404, detail="Araç bulunamadı")
 
     data = payload.model_dump(exclude={"dtc_codes"})
@@ -241,8 +345,16 @@ def create_work_order(payload: schemas.WorkOrderCreate, db: Session = Depends(ge
     ]
     services.refresh_work_order_embedding(work_order)
     db.add(work_order)
+    db.flush()
+    auth.add_audit_event(
+        db,
+        request.state.user.id,
+        "work_order.created",
+        entity_type="work_order",
+        entity_id=work_order.id,
+        event_data={"vehicle_id": str(payload.vehicle_id), "status": payload.status},
+    )
     if payload.voice_transcript:
-        db.flush()
         preview = services.extract_preview(payload.voice_transcript)
         db.add(
             models.AIExtraction(
@@ -263,27 +375,34 @@ def create_work_order(payload: schemas.WorkOrderCreate, db: Session = Depends(ge
 
 
 @app.get(f"{settings.api_prefix}/work-orders", response_model=list[schemas.WorkOrderRead])
-def list_work_orders(db: Session = Depends(get_db)) -> list[models.WorkOrder]:
+def list_work_orders(request: Request, db: Session = Depends(get_db)) -> list[models.WorkOrder]:
     query = (
         select(models.WorkOrder)
+        .join(models.WorkOrder.vehicle)
         .options(selectinload(models.WorkOrder.dtc_codes))
+        .where(models.Vehicle.owner_id == request.state.user.id)
         .order_by(models.WorkOrder.created_at.desc())
     )
     return list(db.scalars(query).unique().all())
 
 
 @app.get(f"{settings.api_prefix}/work-orders/{{work_order_id}}", response_model=schemas.WorkOrderRead)
-def get_work_order(work_order_id: uuid.UUID, db: Session = Depends(get_db)) -> models.WorkOrder:
-    return get_work_order_or_404(work_order_id, db)
+def get_work_order(
+    work_order_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> models.WorkOrder:
+    return get_work_order_or_404(work_order_id, request.state.user.id, db)
 
 
 @app.patch(f"{settings.api_prefix}/work-orders/{{work_order_id}}", response_model=schemas.WorkOrderRead)
 def update_work_order(
     work_order_id: uuid.UUID,
     payload: schemas.WorkOrderUpdate,
+    request: Request,
     db: Session = Depends(get_db),
 ) -> models.WorkOrder:
-    work_order = get_work_order_or_404(work_order_id, db)
+    work_order = get_work_order_or_404(work_order_id, request.state.user.id, db)
     update_data = payload.model_dump(exclude_unset=True, exclude={"dtc_codes"})
 
     if update_data.get("customer_complaint", "not-set") is None:
@@ -305,15 +424,34 @@ def update_work_order(
 
     work_order.search_text = services.build_search_text_from_order(work_order)
     services.refresh_work_order_embedding(work_order)
+    auth.add_audit_event(
+        db,
+        request.state.user.id,
+        "work_order.updated",
+        entity_type="work_order",
+        entity_id=work_order.id,
+        event_data={"fields": sorted(payload.model_fields_set)},
+    )
     db.commit()
-    return get_work_order_or_404(work_order_id, db)
+    return get_work_order_or_404(work_order_id, request.state.user.id, db)
 
 
 @app.get(f"{settings.api_prefix}/dashboard/summary", response_model=schemas.DashboardSummary)
-def dashboard_summary(db: Session = Depends(get_db)) -> schemas.DashboardSummary:
-    total_vehicles = db.scalar(select(func.count()).select_from(models.Vehicle)) or 0
+def dashboard_summary(request: Request, db: Session = Depends(get_db)) -> schemas.DashboardSummary:
+    user_id = request.state.user.id
+    total_vehicles = (
+        db.scalar(
+            select(func.count())
+            .select_from(models.Vehicle)
+            .where(models.Vehicle.owner_id == user_id)
+        )
+        or 0
+    )
     status_rows = db.execute(
-        select(models.WorkOrder.status, func.count()).group_by(models.WorkOrder.status)
+        select(models.WorkOrder.status, func.count())
+        .join(models.WorkOrder.vehicle)
+        .where(models.Vehicle.owner_id == user_id)
+        .group_by(models.WorkOrder.status)
     ).all()
     status_counts = {status_name: count for status_name, count in status_rows}
     total_work_orders = sum(status_counts.values())
@@ -323,13 +461,19 @@ def dashboard_summary(db: Session = Depends(get_db)) -> schemas.DashboardSummary
         db.scalar(
             select(func.count())
             .select_from(models.WorkOrder)
-            .where(models.WorkOrder.approved_by_mechanic.is_(True))
+            .join(models.WorkOrder.vehicle)
+            .where(
+                models.Vehicle.owner_id == user_id,
+                models.WorkOrder.approved_by_mechanic.is_(True),
+            )
         )
         or 0
     )
     recent_query = (
         select(models.WorkOrder)
+        .join(models.WorkOrder.vehicle)
         .options(selectinload(models.WorkOrder.dtc_codes))
+        .where(models.Vehicle.owner_id == user_id)
         .order_by(models.WorkOrder.created_at.desc())
         .limit(6)
     )
@@ -414,8 +558,12 @@ async def transcribe_audio(
 
 
 @app.post(f"{settings.api_prefix}/cases/search", response_model=list[schemas.CaseSearchResult])
-def search_cases(payload: schemas.CaseSearchRequest, db: Session = Depends(get_db)) -> list[schemas.CaseSearchResult]:
-    results = services.search_cases(db, payload)
+def search_cases(
+    payload: schemas.CaseSearchRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> list[schemas.CaseSearchResult]:
+    results = services.search_cases(db, payload, request.state.user.id)
     return [
         schemas.CaseSearchResult(
             work_order=schemas.WorkOrderRead.model_validate(match.work_order),

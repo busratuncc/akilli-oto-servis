@@ -1,4 +1,5 @@
 import re
+import uuid
 from dataclasses import dataclass
 
 from sqlalchemy import Select, or_, select
@@ -157,10 +158,18 @@ def extract_preview(text: str) -> schemas.ExtractionPreview:
     )
 
 
-def _base_case_query(payload: schemas.CaseSearchRequest) -> Select[tuple[models.WorkOrder]]:
-    query: Select[tuple[models.WorkOrder]] = select(models.WorkOrder).options(
-        selectinload(models.WorkOrder.dtc_codes),
-        selectinload(models.WorkOrder.vehicle),
+def _base_case_query(
+    payload: schemas.CaseSearchRequest,
+    user_id: uuid.UUID,
+) -> Select[tuple[models.WorkOrder]]:
+    query: Select[tuple[models.WorkOrder]] = (
+        select(models.WorkOrder)
+        .join(models.WorkOrder.vehicle)
+        .options(
+            selectinload(models.WorkOrder.dtc_codes),
+            selectinload(models.WorkOrder.vehicle),
+        )
+        .where(models.Vehicle.owner_id == user_id)
     )
     if payload.approved_only:
         query = query.where(models.WorkOrder.approved_by_mechanic.is_(True))
@@ -171,13 +180,19 @@ def _base_case_query(payload: schemas.CaseSearchRequest) -> Select[tuple[models.
     return query
 
 
-def search_cases(db: Session, payload: schemas.CaseSearchRequest) -> list[CaseMatch]:
+def search_cases(
+    db: Session,
+    payload: schemas.CaseSearchRequest,
+    user_id: uuid.UUID,
+) -> list[CaseMatch]:
     terms = [term for term in re.split(r"\s+", payload.query.strip()) if len(term) > 1]
     matches: dict[object, CaseMatch] = {}
     candidate_limit = max(payload.limit * 3, 12)
 
     if payload.search_mode in {"keyword", "hybrid"}:
-        keyword_query = _base_case_query(payload).order_by(models.WorkOrder.created_at.desc())
+        keyword_query = _base_case_query(payload, user_id).order_by(
+            models.WorkOrder.created_at.desc()
+        )
         filters = [models.WorkOrder.search_text.ilike(f"%{term}%") for term in terms[:8]]
         if filters:
             keyword_query = keyword_query.where(or_(*filters))
@@ -204,7 +219,7 @@ def search_cases(db: Session, payload: schemas.CaseSearchRequest) -> list[CaseMa
     if payload.search_mode in {"semantic", "hybrid"}:
         query_vector, _provider = ml.embed_text(payload.query, kind="query")
         distance = models.WorkOrder.embedding.cosine_distance(query_vector).label("distance")
-        semantic_query = _base_case_query(payload).add_columns(distance).where(
+        semantic_query = _base_case_query(payload, user_id).add_columns(distance).where(
             models.WorkOrder.embedding.is_not(None)
         )
         semantic_query = semantic_query.order_by(distance).limit(candidate_limit)

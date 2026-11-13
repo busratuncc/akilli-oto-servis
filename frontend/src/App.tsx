@@ -8,6 +8,7 @@ import { useI18n } from "./i18n";
 import { AssistantPage } from "./pages/AssistantPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { LoginPage } from "./pages/LoginPage";
+import { SettingsPage } from "./pages/SettingsPage";
 import type { IntakeDraft } from "./pages/WorkOrdersPage";
 import { WorkOrdersPage } from "./pages/WorkOrdersPage";
 import { VehiclesPage } from "./pages/VehiclesPage";
@@ -19,6 +20,7 @@ const PAGE_TITLE_KEYS: Record<string, string> = {
   "/vehicles": "nav.vehicles",
   "/work-orders": "nav.orders",
   "/assistant": "nav.assistant",
+  "/settings": "nav.settings",
 };
 
 function App() {
@@ -161,6 +163,7 @@ function App() {
             <Route path="/vehicles" element={<VehiclesPage vehicles={vehicles} orders={orders} onChanged={refresh} notify={setNotice} reportError={setError} />} />
             <Route path="/work-orders" element={<WorkOrdersPage vehicles={vehicles} orders={orders} initialDraft={intakeDraft} onDraftConsumed={consumeDraft} onChanged={refresh} notify={setNotice} reportError={setError} />} />
             <Route path="/assistant" element={<AssistantPage onUseDraft={useAssistantDraft} notify={setNotice} reportError={setError} />} />
+            <Route path="/settings" element={<SettingsPage user={user} onUserUpdated={setUser} notify={setNotice} reportError={setError} />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </main>

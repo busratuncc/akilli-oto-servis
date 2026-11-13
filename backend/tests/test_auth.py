@@ -4,7 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from app import auth
-from app.schemas import OTPVerify, RegistrationRequest
+from app.schemas import OTPVerify, RegistrationRequest, UserProfileUpdate
 
 
 def test_email_normalization_and_otp_hashing() -> None:
@@ -51,3 +51,12 @@ def test_registration_requires_numeric_phone_and_mandatory_consents() -> None:
         RegistrationRequest(**{**valid, "phone_number": "555-ABC"})
     with pytest.raises(ValidationError):
         RegistrationRequest(**{**valid, "privacy_accepted": False})
+
+
+def test_profile_update_rejects_non_numeric_phone() -> None:
+    with pytest.raises(ValidationError):
+        UserProfileUpdate(
+            full_name="Büşra Tunç",
+            phone_country_code="+90",
+            phone_number="555-ABC",
+        )

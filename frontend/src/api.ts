@@ -9,6 +9,8 @@ import type {
   AuthMessage,
   AuthResponse,
   RegistrationPayload,
+  ProfileUpdatePayload,
+  AuditEvent,
 } from "./types";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000/api";
@@ -63,6 +65,12 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify({ preferred_language: preferredLanguage }),
     }),
+  updateProfile: (payload: ProfileUpdatePayload) =>
+    request<AuthResponse>("/auth/profile", {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+  accountActivity: () => request<AuditEvent[]>("/auth/activity"),
   health: () => request<{ status: string; service: string }>("/health"),
   dashboard: () => request<DashboardSummary>("/dashboard/summary"),
   listVehicles: () => request<Vehicle[]>("/vehicles"),

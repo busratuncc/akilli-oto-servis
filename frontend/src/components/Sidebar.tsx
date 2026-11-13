@@ -4,6 +4,7 @@ import {
   ClipboardList,
   Gauge,
   Settings,
+  ShieldCheck,
   Wrench,
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
@@ -14,6 +15,7 @@ const links = [
   { to: "/vehicles", label: "nav.vehicles", icon: CarFront },
   { to: "/work-orders", label: "nav.orders", icon: ClipboardList },
   { to: "/assistant", label: "nav.assistant", icon: Bot },
+  { to: "/settings", label: "nav.settings", icon: Settings },
 ];
 
 export function Sidebar() {
@@ -38,7 +40,7 @@ export function Sidebar() {
       </nav>
 
       <div className="sidebar-footer">
-        <Settings size={17} />
+        <ShieldCheck size={17} />
         <span>{t("app.prototype")}</span>
       </div>
     </aside>

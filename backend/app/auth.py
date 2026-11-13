@@ -50,6 +50,26 @@ def _token_hash(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
+def add_audit_event(
+    db: Session,
+    user_id: uuid.UUID,
+    event_type: str,
+    *,
+    entity_type: str | None = None,
+    entity_id: uuid.UUID | None = None,
+    event_data: dict | None = None,
+) -> None:
+    db.add(
+        models.AuditEvent(
+            user_id=user_id,
+            event_type=event_type,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            event_data=event_data or {},
+        )
+    )
+
+
 def is_registered(user: models.User | None) -> bool:
     return bool(
         user
@@ -89,6 +109,15 @@ def register_user(db: Session, payload: schemas.RegistrationRequest) -> models.U
     if existing_user is None:
         db.add(user)
     try:
+        db.flush()
+        add_audit_event(
+            db,
+            user.id,
+            "account.registered",
+            entity_type="user",
+            entity_id=user.id,
+            event_data={"consent_version": user.consent_version},
+        )
         db.commit()
     except IntegrityError as exc:
         db.rollback()
@@ -245,6 +274,7 @@ def _create_session(
             expires_at=now + timedelta(days=settings.session_expiry_days),
         )
     )
+    add_audit_event(db, user.id, "auth.login", entity_type="user", entity_id=user.id)
     db.commit()
     db.refresh(user)
     return user, token
@@ -265,9 +295,41 @@ def get_user_by_session(db: Session, token: str | None) -> models.User | None:
     return auth_session.user if auth_session else None
 
 
-def delete_session(db: Session, token: str | None) -> None:
+def update_profile(
+    db: Session,
+    user: models.User,
+    payload: schemas.UserProfileUpdate,
+) -> models.User:
+    phone_owner_id = db.scalar(
+        select(models.User.id).where(
+            models.User.phone_country_code == payload.phone_country_code,
+            models.User.phone_number == payload.phone_number,
+            models.User.id != user.id,
+        )
+    )
+    if phone_owner_id:
+        raise RegistrationConflictError("Bu telefon numarası başka bir hesapta kayıtlı")
+
+    user.full_name = payload.full_name
+    user.workshop_name = payload.workshop_name
+    user.phone_country_code = payload.phone_country_code
+    user.phone_number = payload.phone_number
+    user.marketing_consent = payload.marketing_consent
+    add_audit_event(db, user.id, "account.profile_updated", entity_type="user", entity_id=user.id)
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise RegistrationConflictError("Telefon numarası başka bir hesapta kayıtlı") from exc
+    db.refresh(user)
+    return user
+
+
+def delete_session(db: Session, token: str | None, user_id: uuid.UUID | None = None) -> None:
     if token:
         db.execute(
             delete(models.AuthSession).where(models.AuthSession.token_hash == _token_hash(token))
         )
+        if user_id:
+            add_audit_event(db, user_id, "auth.logout", entity_type="user", entity_id=user_id)
         db.commit()

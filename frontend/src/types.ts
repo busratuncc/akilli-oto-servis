@@ -94,6 +94,26 @@ export type AuthUser = {
   phone_number: string;
   preferred_language: "tr" | "en";
   marketing_consent: boolean;
+  created_at: string;
+  privacy_accepted_at: string;
+  terms_accepted_at: string;
+};
+
+export type ProfileUpdatePayload = {
+  full_name: string;
+  workshop_name: string | null;
+  phone_country_code: string;
+  phone_number: string;
+  marketing_consent: boolean;
+};
+
+export type AuditEvent = {
+  id: string;
+  event_type: string;
+  entity_type: string | null;
+  entity_id: string | null;
+  event_data: Record<string, unknown>;
+  created_at: string;
 };
 
 export type RegistrationPayload = {

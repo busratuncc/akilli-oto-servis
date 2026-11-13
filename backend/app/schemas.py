@@ -67,6 +67,9 @@ class AuthUser(BaseModel):
     phone_number: str
     preferred_language: Language
     marketing_consent: bool
+    created_at: datetime
+    privacy_accepted_at: datetime
+    terms_accepted_at: datetime
 
 
 class AuthResponse(BaseModel):
@@ -83,6 +86,40 @@ class AuthMessage(BaseModel):
 
 class UserPreferencesUpdate(BaseModel):
     preferred_language: Language
+
+
+class UserProfileUpdate(BaseModel):
+    full_name: str = Field(min_length=2, max_length=120)
+    workshop_name: str | None = Field(default=None, max_length=160)
+    phone_country_code: str = Field(pattern=r"^\+[0-9]{1,4}$")
+    phone_number: str = Field(min_length=6, max_length=15, pattern=r"^[0-9]+$")
+    marketing_consent: bool = False
+
+    @field_validator("full_name")
+    @classmethod
+    def normalize_profile_name(cls, value: str) -> str:
+        normalized = value.strip()
+        if len(normalized) < 2:
+            raise ValueError("Ad soyad en az iki karakter olmalıdır")
+        return normalized
+
+    @field_validator("workshop_name")
+    @classmethod
+    def normalize_profile_workshop(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return value.strip() or None
+
+
+class AuditEventRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    event_type: str
+    entity_type: str | None
+    entity_id: uuid.UUID | None
+    event_data: dict
+    created_at: datetime
 
 
 class VehicleCreate(BaseModel):

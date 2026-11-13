@@ -11,9 +11,15 @@ from app.database import Base
 
 class Vehicle(Base):
     __tablename__ = "vehicles"
+    __table_args__ = (
+        UniqueConstraint("owner_id", "anonymous_code", name="uq_vehicles_owner_code"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    anonymous_code: Mapped[str] = mapped_column(String(32), unique=True, index=True)
+    owner_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    anonymous_code: Mapped[str] = mapped_column(String(32), index=True)
     brand: Mapped[str] = mapped_column(String(80))
     model: Mapped[str] = mapped_column(String(80))
     model_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -25,6 +31,7 @@ class Vehicle(Base):
     work_orders: Mapped[list["WorkOrder"]] = relationship(
         back_populates="vehicle", cascade="all, delete-orphan"
     )
+    owner: Mapped["User | None"] = relationship(back_populates="vehicles")
 
 
 class WorkOrder(Base):
@@ -102,6 +109,30 @@ class User(Base):
     sessions: Mapped[list["AuthSession"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
+    vehicles: Mapped[list[Vehicle]] = relationship(
+        back_populates="owner", cascade="all, delete-orphan"
+    )
+    audit_events: Mapped[list["AuditEvent"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+
+
+class AuditEvent(Base):
+    __tablename__ = "audit_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    event_type: Mapped[str] = mapped_column(String(80), index=True)
+    entity_type: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    entity_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    event_data: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+
+    user: Mapped[User] = relationship(back_populates="audit_events")
 
 
 class OTPChallenge(Base):

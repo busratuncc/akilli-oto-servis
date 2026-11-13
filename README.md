@@ -2,7 +2,7 @@
 
 Türkçe servis anlatımlarını yapılandırılmış iş emirlerine dönüştürmek, atölyedeki servis sürecini izlemek, OBD-II kodlarını kaydetmek ve geçmiş vakalar arasında arama yapmak için geliştirilen tez uygulaması.
 
-## Mevcut uygulama (v0.5)
+## Mevcut uygulama (v0.6)
 
 - Atölye özetlerini ve iş emri dağılımını gösteren dashboard
 - Anonim kodla araç kaydı ve araç servis geçmişi
@@ -21,6 +21,9 @@ Türkçe servis anlatımlarını yapılandırılmış iş emirlerine dönüştü
 - Geliştirme ortamında `111111` yerel koduyla giriş ve sunucu taraflı oturum
 - Kalıcı açık/koyu tema seçimi
 - Türkçe ve İngilizce arayüz seçimi
+- Araçlar, iş emirleri, dashboard ve vaka aramaları için hesap bazlı veri izolasyonu
+- Profil/iletişim tercihi güncelleme ekranı
+- Giriş, profil, araç ve iş emri değişiklikleri için denetim kaydı
 - Masaüstü ve mobil ekranlara uyumlu React arayüzü
 
 ## Başlangıç kapsamı
@@ -70,6 +73,12 @@ Yeni kullanıcı önce kayıt ekranında profil ve iletişim bilgilerini girer. 
 - Gerçek ortamda `AUTH_SECRET` uzun ve rastgele bir değere, `AUTH_COOKIE_SECURE=true` olarak ayarlanmalı; `SMTP_*` değerleri gerçek e-posta sağlayıcısıyla değiştirilmelidir.
 
 Mailpit servisi ileride gerçek e-posta OTP akışı yeniden etkinleştirildiğinde test posta kutusu olarak kullanılmak üzere yapılandırmada korunur. Yerel `111111` akışında e-posta gönderilmez.
+
+### Hesap bazlı veri yönetimi
+
+Her yeni araç `owner_id` ile oturum açmış hesaba bağlanır. Araç listeleri, iş emirleri, dashboard istatistikleri ve benzer vaka araması sunucu tarafında bu sahiplik bilgisine göre filtrelenir. Aynı anonim araç kodu farklı servis hesaplarında kullanılabilir; aynı hesap içinde tekrar kullanılamaz.
+
+Hesap, giriş, profil, araç ve iş emri işlemleri `audit_events` tablosuna kaydedilir. Denetim geçmişinin son kayıtları **Hesap ayarları** ekranında görülebilir. Gizli giriş kodu veya oturum anahtarı denetim verisine yazılmaz.
 
 ### Yerel yapay zekâ modelleri
 
