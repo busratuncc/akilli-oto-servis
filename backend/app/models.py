@@ -1,0 +1,80 @@
+import uuid
+from datetime import datetime
+
+from pgvector.sqlalchemy import Vector
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String, Text, func
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from app.database import Base
+
+
+class Vehicle(Base):
+    __tablename__ = "vehicles"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    anonymous_code: Mapped[str] = mapped_column(String(32), unique=True, index=True)
+    brand: Mapped[str] = mapped_column(String(80))
+    model: Mapped[str] = mapped_column(String(80))
+    model_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    engine: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    fuel_type: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    mileage: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    work_orders: Mapped[list["WorkOrder"]] = relationship(
+        back_populates="vehicle", cascade="all, delete-orphan"
+    )
+
+
+class WorkOrder(Base):
+    __tablename__ = "work_orders"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    vehicle_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("vehicles.id", ondelete="CASCADE"), index=True
+    )
+    customer_complaint: Mapped[str] = mapped_column(Text)
+    symptoms: Mapped[str | None] = mapped_column(Text, nullable=True)
+    diagnosis: Mapped[str | None] = mapped_column(Text, nullable=True)
+    actions: Mapped[str | None] = mapped_column(Text, nullable=True)
+    result: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(24), default="draft")
+    approved_by_mechanic: Mapped[bool] = mapped_column(Boolean, default=False)
+    voice_transcript: Mapped[str | None] = mapped_column(Text, nullable=True)
+    search_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(384), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+    vehicle: Mapped[Vehicle] = relationship(back_populates="work_orders")
+    dtc_codes: Mapped[list["DtcCode"]] = relationship(
+        back_populates="work_order", cascade="all, delete-orphan"
+    )
+
+
+class DtcCode(Base):
+    __tablename__ = "dtc_codes"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    work_order_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("work_orders.id", ondelete="CASCADE")
+    )
+    code: Mapped[str] = mapped_column(String(8), index=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    work_order: Mapped[WorkOrder] = relationship(back_populates="dtc_codes")
+
+
+class AIExtraction(Base):
+    __tablename__ = "ai_extractions"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    work_order_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("work_orders.id", ondelete="SET NULL"), nullable=True
+    )
+    provider: Mapped[str] = mapped_column(String(80))
+    raw_text: Mapped[str] = mapped_column(Text)
+    extracted_json: Mapped[dict] = mapped_column(JSON)
+    confirmed: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
