@@ -1,6 +1,19 @@
 # Akıllı Oto Servis
 
-Türkçe servis anlatımlarını yapılandırılmış iş emirlerine dönüştürmek, OBD-II kodlarını kaydetmek ve geçmiş vakalar arasında arama yapmak için hazırlanmış tez projesi temeli.
+Türkçe servis anlatımlarını yapılandırılmış iş emirlerine dönüştürmek, atölyedeki servis sürecini izlemek, OBD-II kodlarını kaydetmek ve geçmiş vakalar arasında arama yapmak için geliştirilen tez uygulaması.
+
+## Mevcut uygulama (v0.2)
+
+- Atölye özetlerini ve iş emri dağılımını gösteren dashboard
+- Anonim kodla araç kaydı ve araç servis geçmişi
+- Taslak, inceleme, onarım, parça bekleme ve tamamlanma durumlarına sahip iş emirleri
+- İş emri durumunu değiştirme ve usta onayı verme
+- Bir iş emrine birden fazla OBD-II kodu ekleme
+- Yaygın OBD-II kodları için yerel açıklama bilgi tabanı
+- Türkçe anlatımdan kilometre, belirti, yapılan işlem ve OBD-II kodu çıkarma
+- Anahtar kelime ve OBD-II koduyla geçmiş vaka arama
+- Yapay zekâ çıktısı ve usta onayı için araştırma izi
+- Masaüstü ve mobil ekranlara uyumlu React arayüzü
 
 ## Başlangıç kapsamı
 
@@ -14,7 +27,7 @@ Türkçe servis anlatımlarını yapılandırılmış iş emirlerine dönüştü
 - Alembic veritabanı migration'ları
 - Docker Compose ile tek komut kurulum
 
-Konuşma tanıma, LLM tabanlı yapılandırılmış çıkarım, embedding üretimi ve kanıta dayalı RAG sonraki iterasyonlar için servis arayüzleri arkasına eklenecektir.
+Konuşma tanıma, LLM tabanlı yapılandırılmış çıkarım, gerçek embedding üretimi ve kanıta dayalı RAG sonraki iterasyonlarda mevcut servis arayüzlerinin arkasına eklenecektir. Arayüzdeki kural motoru kesin teşhis üretmez; kayıt usta tarafından doğrulanmalıdır.
 
 ## Çalıştırma
 
@@ -34,6 +47,8 @@ Windows için aynı işlemi yapan yardımcı komut:
 3. Arayüz: http://localhost:5174
 4. API dokümantasyonu: http://localhost:8000/docs
 5. Sağlık kontrolü: http://localhost:8000/api/health
+
+Uygulama menüsü dört bölümden oluşur: **Gösterge paneli**, **Araçlar**, **İş emirleri** ve **Akıllı asistan**.
 
 PostgreSQL, bilgisayardaki mevcut servislerle çakışmaması için dışarıya `localhost:55432` üzerinden açılır. Docker içindeki servisler kendi aralarında standart 5432 portunu kullanır. Arayüz de aynı nedenle 5174 portundadır.
 
@@ -68,6 +83,8 @@ code .
 ```powershell
 .\scripts\check.ps1
 ```
+
+Komut; backend testlerini, frontend lint kontrolünü, TypeScript production derlemesini ve canlı API sağlık kontrolünü birlikte çalıştırır.
 
 ## Mimari
 

@@ -1,12 +1,15 @@
 # Tez ve ürün yol haritası
 
-## Faz 1 - Çalışan kayıt sistemi (mevcut temel)
+## Faz 1 - Çalışan kayıt sistemi (tamamlandı)
 
 - Araç ve iş emri kaydı
 - OBD-II kodu doğrulama
 - Usta onaylı vaka durumu
 - Basit metin çıkarma ve vaka arama
 - Docker tabanlı geliştirme ortamı
+- Dashboard ve iş emri yaşam döngüsü
+- Usta onayı ve yapay zekâ araştırma izi
+- Mobil uyumlu uygulama arayüzü
 
 ## Faz 2 - Gerçek veri toplama
 

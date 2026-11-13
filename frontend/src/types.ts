@@ -16,6 +16,14 @@ export type DtcCode = {
   description?: string | null;
 };
 
+export type WorkOrderStatus =
+  | "draft"
+  | "inspection"
+  | "repairing"
+  | "waiting_parts"
+  | "completed"
+  | "cancelled";
+
 export type WorkOrder = {
   id: string;
   vehicle_id: string;
@@ -24,7 +32,7 @@ export type WorkOrder = {
   diagnosis: string | null;
   actions: string | null;
   result: string | null;
-  status: string;
+  status: WorkOrderStatus;
   approved_by_mechanic: boolean;
   voice_transcript: string | null;
   created_at: string;
@@ -35,6 +43,7 @@ export type ExtractionPreview = {
   provider: string;
   raw_text: string;
   dtc_codes: string[];
+  dtc_details: DtcCode[];
   mileage: number | null;
   probable_fields: Record<string, unknown>;
   warnings: string[];
@@ -44,5 +53,15 @@ export type CaseSearchResult = {
   work_order: WorkOrder;
   vehicle: Vehicle;
   match_reason: string;
+};
+
+export type DashboardSummary = {
+  total_vehicles: number;
+  total_work_orders: number;
+  open_work_orders: number;
+  completed_work_orders: number;
+  approved_cases: number;
+  status_counts: Partial<Record<WorkOrderStatus, number>>;
+  recent_work_orders: WorkOrder[];
 };
 
