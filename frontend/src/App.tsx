@@ -9,6 +9,7 @@ import { AssistantPage } from "./pages/AssistantPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { LoginPage } from "./pages/LoginPage";
 import { FinancePage } from "./pages/FinancePage";
+import { InventoryPage } from "./pages/InventoryPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import type { IntakeDraft } from "./pages/WorkOrdersPage";
 import { WorkOrdersPage } from "./pages/WorkOrdersPage";
@@ -20,6 +21,7 @@ const PAGE_TITLE_KEYS: Record<string, string> = {
   "/": "nav.dashboard",
   "/vehicles": "nav.vehicles",
   "/work-orders": "nav.orders",
+  "/inventory": "nav.inventory",
   "/finance": "nav.finance",
   "/assistant": "nav.assistant",
   "/settings": "nav.settings",
@@ -164,6 +166,7 @@ function App() {
             <Route path="/" element={<DashboardPage summary={summary} vehicleMap={vehicleMap} />} />
             <Route path="/vehicles" element={<VehiclesPage vehicles={vehicles} orders={orders} onChanged={refresh} notify={setNotice} reportError={setError} />} />
             <Route path="/work-orders" element={<WorkOrdersPage vehicles={vehicles} orders={orders} initialDraft={intakeDraft} onDraftConsumed={consumeDraft} onChanged={refresh} notify={setNotice} reportError={setError} />} />
+            <Route path="/inventory" element={<InventoryPage notify={setNotice} reportError={setError} />} />
             <Route path="/finance" element={<FinancePage vehicles={vehicles} orders={orders} notify={setNotice} reportError={setError} />} />
             <Route path="/assistant" element={<AssistantPage onUseDraft={useAssistantDraft} notify={setNotice} reportError={setError} />} />
             <Route path="/settings" element={<SettingsPage user={user} onUserUpdated={setUser} notify={setNotice} reportError={setError} />} />

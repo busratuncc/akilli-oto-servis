@@ -35,6 +35,9 @@ const EVENT_LABEL_KEYS: Record<string, string> = {
   "work_order.updated": "settings.eventOrderUpdated",
   "invoice.created": "settings.eventInvoiceCreated",
   "payment.recorded": "settings.eventPaymentRecorded",
+  "inventory.part_created": "settings.eventPartCreated",
+  "inventory.part_updated": "settings.eventPartUpdated",
+  "inventory.stock_moved": "settings.eventStockMoved",
 };
 
 export function SettingsPage({ user, onUserUpdated, notify, reportError }: Props) {

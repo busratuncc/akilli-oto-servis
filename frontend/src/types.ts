@@ -146,6 +146,7 @@ export type PaymentMethod = "cash" | "card_pos" | "bank_transfer" | "other";
 
 export type InvoiceLine = {
   id: string;
+  inventory_part_id: string | null;
   item_type: InvoiceItemType;
   description: string;
   quantity: string;
@@ -196,6 +197,7 @@ export type FinanceSummary = {
 export type InvoiceCreatePayload = {
   line_items: Array<{
     item_type: InvoiceItemType;
+    inventory_part_id: string | null;
     description: string;
     quantity: string;
     unit_price: string;
@@ -211,5 +213,44 @@ export type PaymentCreatePayload = {
   method: PaymentMethod;
   reference: string | null;
   notes: string | null;
+};
+
+export type InventoryPart = {
+  id: string;
+  sku: string;
+  name: string;
+  brand: string | null;
+  category: string | null;
+  unit: string;
+  stock_quantity: string;
+  low_stock_threshold: string;
+  purchase_price: string;
+  sale_price: string;
+  active: boolean;
+  is_low_stock: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type StockMovementType = "initial" | "stock_in" | "stock_out" | "invoice_sale";
+
+export type StockMovement = {
+  id: string;
+  part_id: string;
+  movement_type: StockMovementType;
+  quantity_delta: string;
+  balance_after: string;
+  reference_type: string | null;
+  reference_id: string | null;
+  notes: string | null;
+  created_at: string;
+};
+
+export type InventorySummary = {
+  total_parts: number;
+  low_stock_parts: number;
+  out_of_stock_parts: number;
+  inventory_cost_value: string;
+  inventory_sale_value: string;
 };
 

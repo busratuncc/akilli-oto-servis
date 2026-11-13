@@ -181,6 +181,9 @@ class InvoiceLineItem(Base):
     invoice_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("invoices.id", ondelete="CASCADE"), index=True
     )
+    inventory_part_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("inventory_parts.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     item_type: Mapped[str] = mapped_column(String(20))
     description: Mapped[str] = mapped_column(String(240))
     quantity: Mapped[Decimal] = mapped_column(Numeric(10, 2))
@@ -189,6 +192,7 @@ class InvoiceLineItem(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     invoice: Mapped[Invoice] = relationship(back_populates="line_items")
+    inventory_part: Mapped["InventoryPart | None"] = relationship(back_populates="invoice_lines")
 
 
 class Payment(Base):
@@ -209,6 +213,64 @@ class Payment(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     invoice: Mapped[Invoice] = relationship(back_populates="payments")
+
+
+class InventoryPart(Base):
+    __tablename__ = "inventory_parts"
+    __table_args__ = (
+        UniqueConstraint("owner_id", "sku", name="uq_inventory_parts_owner_sku"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    owner_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    sku: Mapped[str] = mapped_column(String(48))
+    name: Mapped[str] = mapped_column(String(160))
+    brand: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    category: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    unit: Mapped[str] = mapped_column(String(20), default="piece")
+    stock_quantity: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
+    low_stock_threshold: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=1)
+    purchase_price: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
+    sale_price: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    movements: Mapped[list["StockMovement"]] = relationship(
+        back_populates="part", cascade="all, delete-orphan"
+    )
+    invoice_lines: Mapped[list[InvoiceLineItem]] = relationship(back_populates="inventory_part")
+
+    @property
+    def is_low_stock(self) -> bool:
+        return self.stock_quantity <= self.low_stock_threshold
+
+
+class StockMovement(Base):
+    __tablename__ = "stock_movements"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    part_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("inventory_parts.id", ondelete="CASCADE"), index=True
+    )
+    created_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    movement_type: Mapped[str] = mapped_column(String(24), index=True)
+    quantity_delta: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+    balance_after: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+    reference_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    reference_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+
+    part: Mapped[InventoryPart] = relationship(back_populates="movements")
 
 
 class OTPChallenge(Base):

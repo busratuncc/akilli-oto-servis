@@ -2,7 +2,7 @@
 
 Türkçe servis anlatımlarını yapılandırılmış iş emirlerine dönüştürmek, atölyedeki servis sürecini izlemek, OBD-II kodlarını kaydetmek ve geçmiş vakalar arasında arama yapmak için geliştirilen tez uygulaması.
 
-## Mevcut uygulama (v0.7)
+## Mevcut uygulama (v0.8)
 
 - Atölye özetlerini ve iş emri dağılımını gösteren dashboard
 - Anonim kodla araç kaydı ve araç servis geçmişi
@@ -30,6 +30,11 @@ Türkçe servis anlatımlarını yapılandırılmış iş emirlerine dönüştü
 - Faturalanan, tahsil edilen, bekleyen ve vadesi geçen tutar özeti
 - Fazla ödemeyi engelleyen bakiye kontrolü ve eşzamanlı tahsilat kilidi
 - Fatura ve ödeme hareketleri için hesap bazlı veri izolasyonu ve denetim kaydı
+- Hesaba özel parça kartları, stok kodu, kategori, marka, birim ve fiyat yönetimi
+- Manuel stok giriş/çıkışı, hareket geçmişi ve kritik stok uyarıları
+- Stok maliyet değeri, stokta olmayan ve kritik seviyedeki parça özetleri
+- Faturada stoktan parça seçimi, otomatik açıklama/fiyat doldurma ve güvenli stok düşümü
+- Yetersiz veya eksi stok girişimini engelleyen sunucu taraflı kontrol ve işlem kilidi
 - Masaüstü ve mobil ekranlara uyumlu React arayüzü
 
 ## Başlangıç kapsamı
@@ -66,7 +71,11 @@ Windows için aynı işlemi yapan yardımcı komut:
 5. Sağlık kontrolü: http://localhost:8000/api/health
 6. Geliştirme e-posta kutusu (Mailpit): http://localhost:8026
 
-Uygulama menüsü altı bölümden oluşur: **Gösterge paneli**, **Araçlar**, **İş emirleri**, **Finans**, **Akıllı asistan** ve **Hesap ayarları**.
+Uygulama menüsü yedi bölümden oluşur: **Gösterge paneli**, **Araçlar**, **İş emirleri**, **Stok**, **Finans**, **Akıllı asistan** ve **Hesap ayarları**.
+
+### Stok ve parça yönetimi
+
+Her parça hesap içinde benzersiz bir stok koduna sahiptir. Başlangıç miktarı, alış/satış fiyatı, ölçü birimi ve kritik stok sınırı kaydedilir. Manuel stok giriş ve çıkışları hareket geçmişinde izlenir; stok eksiye düşürülemez. Faturada stok kartına bağlı bir parça kullanıldığında gerekli miktar eşzamanlı işlemlere karşı kilitlenerek kontrol edilir, fatura ile stok hareketi aynı veritabanı işlemi içinde kaydedilir. Fatura oluşmazsa stok değişikliği de geri alınır.
 
 ### Fatura ve ödeme takibi
 

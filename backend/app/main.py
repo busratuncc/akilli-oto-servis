@@ -11,7 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 from starlette.concurrency import run_in_threadpool
 
-from app import auth, finance, ml, models, schemas, services
+from app import auth, finance, inventory, ml, models, schemas, services
 from app.config import settings
 from app.database import SessionLocal, get_db
 
@@ -96,6 +96,25 @@ def get_invoice_or_404(
     if invoice is None:
         raise HTTPException(status_code=404, detail="Fatura bulunamadı")
     return invoice
+
+
+def get_inventory_part_or_404(
+    part_id: uuid.UUID,
+    user_id: uuid.UUID,
+    db: Session,
+    *,
+    lock_for_update: bool = False,
+) -> models.InventoryPart:
+    query = select(models.InventoryPart).where(
+        models.InventoryPart.id == part_id,
+        models.InventoryPart.owner_id == user_id,
+    )
+    if lock_for_update:
+        query = query.with_for_update()
+    part = db.scalar(query)
+    if part is None:
+        raise HTTPException(status_code=404, detail="Stok parçası bulunamadı")
+    return part
 
 
 @app.get(f"{settings.api_prefix}/health")
@@ -465,6 +484,207 @@ def update_work_order(
 
 
 @app.post(
+    f"{settings.api_prefix}/inventory/parts",
+    response_model=schemas.InventoryPartRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_inventory_part(
+    payload: schemas.InventoryPartCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> models.InventoryPart:
+    data = payload.model_dump(exclude={"initial_quantity"})
+    part = models.InventoryPart(
+        owner_id=request.state.user.id,
+        stock_quantity=inventory.quantity(payload.initial_quantity),
+        **data,
+    )
+    db.add(part)
+    try:
+        db.flush()
+        if part.stock_quantity > Decimal("0"):
+            db.add(
+                models.StockMovement(
+                    part_id=part.id,
+                    created_by_id=request.state.user.id,
+                    movement_type="initial",
+                    quantity_delta=part.stock_quantity,
+                    balance_after=part.stock_quantity,
+                    notes="İlk stok",
+                )
+            )
+        auth.add_audit_event(
+            db,
+            request.state.user.id,
+            "inventory.part_created",
+            entity_type="inventory_part",
+            entity_id=part.id,
+            event_data={"sku": part.sku, "initial_quantity": str(part.stock_quantity)},
+        )
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Bu stok kodu zaten kullanılıyor") from exc
+    db.refresh(part)
+    return part
+
+
+@app.get(
+    f"{settings.api_prefix}/inventory/parts",
+    response_model=list[schemas.InventoryPartRead],
+)
+def list_inventory_parts(
+    request: Request,
+    db: Session = Depends(get_db),
+) -> list[models.InventoryPart]:
+    query = (
+        select(models.InventoryPart)
+        .where(models.InventoryPart.owner_id == request.state.user.id)
+        .order_by(models.InventoryPart.active.desc(), models.InventoryPart.name)
+    )
+    return list(db.scalars(query).all())
+
+
+@app.patch(
+    f"{settings.api_prefix}/inventory/parts/{{part_id}}",
+    response_model=schemas.InventoryPartRead,
+)
+def update_inventory_part(
+    part_id: uuid.UUID,
+    payload: schemas.InventoryPartUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> models.InventoryPart:
+    part = get_inventory_part_or_404(part_id, request.state.user.id, db)
+    update_data = payload.model_dump(exclude_unset=True)
+    required_fields = {
+        "sku", "name", "unit", "low_stock_threshold", "purchase_price", "sale_price", "active"
+    }
+    if any(field in update_data and update_data[field] is None for field in required_fields):
+        raise HTTPException(status_code=422, detail="Zorunlu parça alanları boş bırakılamaz")
+    for field, value in update_data.items():
+        setattr(part, field, value)
+    try:
+        auth.add_audit_event(
+            db,
+            request.state.user.id,
+            "inventory.part_updated",
+            entity_type="inventory_part",
+            entity_id=part.id,
+            event_data={"fields": sorted(payload.model_fields_set)},
+        )
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Bu stok kodu zaten kullanılıyor") from exc
+    db.refresh(part)
+    return part
+
+
+@app.post(
+    f"{settings.api_prefix}/inventory/parts/{{part_id}}/movements",
+    response_model=schemas.InventoryPartRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def record_stock_movement(
+    part_id: uuid.UUID,
+    payload: schemas.StockMovementCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> models.InventoryPart:
+    part = get_inventory_part_or_404(
+        part_id,
+        request.state.user.id,
+        db,
+        lock_for_update=True,
+    )
+    try:
+        delta, balance = inventory.apply_movement(
+            part.stock_quantity,
+            payload.movement_type,
+            payload.quantity,
+        )
+    except inventory.InsufficientStockError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Yetersiz stok. Mevcut miktar: {part.stock_quantity} {part.unit}",
+        ) from exc
+    part.stock_quantity = balance
+    movement = models.StockMovement(
+        part_id=part.id,
+        created_by_id=request.state.user.id,
+        movement_type=payload.movement_type,
+        quantity_delta=delta,
+        balance_after=balance,
+        reference_type="manual",
+        notes=payload.notes.strip() if payload.notes else None,
+    )
+    db.add(movement)
+    auth.add_audit_event(
+        db,
+        request.state.user.id,
+        "inventory.stock_moved",
+        entity_type="inventory_part",
+        entity_id=part.id,
+        event_data={
+            "movement_type": payload.movement_type,
+            "quantity_delta": str(delta),
+            "balance_after": str(balance),
+        },
+    )
+    db.commit()
+    db.refresh(part)
+    return part
+
+
+@app.get(
+    f"{settings.api_prefix}/inventory/movements",
+    response_model=list[schemas.StockMovementRead],
+)
+def list_stock_movements(
+    request: Request,
+    part_id: uuid.UUID | None = None,
+    db: Session = Depends(get_db),
+) -> list[models.StockMovement]:
+    query = (
+        select(models.StockMovement)
+        .join(models.StockMovement.part)
+        .where(models.InventoryPart.owner_id == request.state.user.id)
+        .order_by(models.StockMovement.created_at.desc())
+        .limit(100)
+    )
+    if part_id is not None:
+        query = query.where(models.StockMovement.part_id == part_id)
+    return list(db.scalars(query).all())
+
+
+@app.get(
+    f"{settings.api_prefix}/inventory/summary",
+    response_model=schemas.InventorySummary,
+)
+def inventory_summary(
+    request: Request,
+    db: Session = Depends(get_db),
+) -> schemas.InventorySummary:
+    parts = list(
+        db.scalars(
+            select(models.InventoryPart).where(
+                models.InventoryPart.owner_id == request.state.user.id,
+                models.InventoryPart.active.is_(True),
+            )
+        ).all()
+    )
+    cost_value, sale_value = inventory.inventory_values(parts)
+    return schemas.InventorySummary(
+        total_parts=len(parts),
+        low_stock_parts=sum(part.is_low_stock for part in parts),
+        out_of_stock_parts=sum(part.stock_quantity == Decimal("0") for part in parts),
+        inventory_cost_value=cost_value,
+        inventory_sale_value=sale_value,
+    )
+
+
+@app.post(
     f"{settings.api_prefix}/work-orders/{{work_order_id}}/invoice",
     response_model=schemas.InvoiceRead,
     status_code=status.HTTP_201_CREATED,
@@ -478,6 +698,53 @@ def create_invoice(
     work_order = get_work_order_or_404(work_order_id, request.state.user.id, db)
     if db.scalar(select(models.Invoice.id).where(models.Invoice.work_order_id == work_order.id)):
         raise HTTPException(status_code=409, detail="Bu iş emri için zaten fatura oluşturulmuş")
+
+    part_requirements: dict[uuid.UUID, Decimal] = {}
+    for item in payload.line_items:
+        if item.inventory_part_id is None:
+            continue
+        if item.item_type != "part":
+            raise HTTPException(
+                status_code=422,
+                detail="Stok parçası yalnızca parça türündeki fatura kalemine bağlanabilir",
+            )
+        part_requirements[item.inventory_part_id] = (
+            part_requirements.get(item.inventory_part_id, Decimal("0")) + item.quantity
+        )
+
+    stock_parts: dict[uuid.UUID, models.InventoryPart] = {}
+    stock_updates: dict[uuid.UUID, tuple[Decimal, Decimal]] = {}
+    if part_requirements:
+        locked_parts = list(
+            db.scalars(
+                select(models.InventoryPart)
+                .where(
+                    models.InventoryPart.owner_id == request.state.user.id,
+                    models.InventoryPart.active.is_(True),
+                    models.InventoryPart.id.in_(part_requirements),
+                )
+                .with_for_update()
+            ).all()
+        )
+        stock_parts = {part.id: part for part in locked_parts}
+        if len(stock_parts) != len(part_requirements):
+            raise HTTPException(status_code=404, detail="Faturadaki stok parçalarından biri bulunamadı")
+        for part_id, required in part_requirements.items():
+            part = stock_parts[part_id]
+            try:
+                stock_updates[part_id] = inventory.apply_movement(
+                    part.stock_quantity,
+                    "invoice_sale",
+                    required,
+                )
+            except inventory.InsufficientStockError as exc:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"{part.name} için stok yetersiz. "
+                        f"Gerekli: {required}, mevcut: {part.stock_quantity} {part.unit}"
+                    ),
+                ) from exc
 
     try:
         line_totals, subtotal, tax_amount, total_amount = finance.calculate_invoice(
@@ -504,6 +771,7 @@ def create_invoice(
         line_items=[
             models.InvoiceLineItem(
                 item_type=item.item_type,
+                inventory_part_id=item.inventory_part_id,
                 description=item.description.strip(),
                 quantity=item.quantity,
                 unit_price=item.unit_price,
@@ -513,6 +781,21 @@ def create_invoice(
         ],
     )
     db.add(invoice)
+    for part_id, (delta, balance) in stock_updates.items():
+        part = stock_parts[part_id]
+        part.stock_quantity = balance
+        db.add(
+            models.StockMovement(
+                part_id=part.id,
+                created_by_id=request.state.user.id,
+                movement_type="invoice_sale",
+                quantity_delta=delta,
+                balance_after=balance,
+                reference_type="invoice",
+                reference_id=invoice.id,
+                notes=invoice.invoice_number,
+            )
+        )
     try:
         db.flush()
         auth.add_audit_event(
@@ -521,7 +804,11 @@ def create_invoice(
             "invoice.created",
             entity_type="invoice",
             entity_id=invoice.id,
-            event_data={"invoice_number": invoice.invoice_number, "total": str(total_amount)},
+            event_data={
+                "invoice_number": invoice.invoice_number,
+                "total": str(total_amount),
+                "stock_part_count": len(stock_updates),
+            },
         )
         db.commit()
     except IntegrityError as exc:

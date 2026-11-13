@@ -16,6 +16,7 @@ import type {
   FinanceSummary,
   Invoice,
   InvoiceItemType,
+  InventoryPart,
   PaymentMethod,
   Vehicle,
   WorkOrder,
@@ -24,6 +25,7 @@ import { formatCurrency, formatDate, formatDateOnly, orderCode } from "../utils"
 
 type DraftLine = {
   item_type: InvoiceItemType;
+  inventory_part_id: string | null;
   description: string;
   quantity: string;
   unit_price: string;
@@ -38,6 +40,7 @@ type Props = {
 
 const emptyLine = (): DraftLine => ({
   item_type: "labor",
+  inventory_part_id: null,
   description: "",
   quantity: "1",
   unit_price: "",
@@ -46,6 +49,7 @@ const emptyLine = (): DraftLine => ({
 export function FinancePage({ vehicles, orders, notify, reportError }: Props) {
   const { language, t } = useI18n();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [inventoryParts, setInventoryParts] = useState<InventoryPart[]>([]);
   const [summary, setSummary] = useState<FinanceSummary | null>(null);
   const [selectedId, setSelectedId] = useState("");
   const [loading, setLoading] = useState(true);
@@ -67,12 +71,14 @@ export function FinancePage({ vehicles, orders, notify, reportError }: Props) {
 
   const loadFinance = useCallback(async () => {
     try {
-      const [invoiceData, summaryData] = await Promise.all([
+      const [invoiceData, summaryData, partData] = await Promise.all([
         api.listInvoices(),
         api.financeSummary(),
+        api.listInventoryParts(),
       ]);
       setInvoices(invoiceData);
       setSummary(summaryData);
+      setInventoryParts(partData.filter((part) => part.active));
       setSelectedId((current) =>
         current && invoiceData.some((invoice) => invoice.id === current)
           ? current
@@ -114,6 +120,28 @@ export function FinancePage({ vehicles, orders, notify, reportError }: Props) {
   function updateLine(index: number, field: keyof DraftLine, value: string) {
     setLines((current) => current.map((line, lineIndex) =>
       lineIndex === index ? { ...line, [field]: value } : line,
+    ));
+  }
+
+  function changeItemType(index: number, itemType: InvoiceItemType) {
+    setLines((current) => current.map((line, lineIndex) =>
+      lineIndex === index
+        ? { ...line, item_type: itemType, inventory_part_id: itemType === "part" ? line.inventory_part_id : null }
+        : line,
+    ));
+  }
+
+  function selectStockPart(index: number, partId: string) {
+    const part = inventoryParts.find((item) => item.id === partId);
+    setLines((current) => current.map((line, lineIndex) =>
+      lineIndex === index
+        ? {
+            ...line,
+            inventory_part_id: part?.id ?? null,
+            description: part?.name ?? line.description,
+            unit_price: part?.sale_price ?? line.unit_price,
+          }
+        : line,
     ));
   }
 
@@ -219,8 +247,8 @@ export function FinancePage({ vehicles, orders, notify, reportError }: Props) {
                 <div className="invoice-line-head"><strong>{t("finance.items")}</strong><button type="button" className="ghost-button" onClick={() => setLines((current) => [...current, emptyLine()])}><Plus size={16} /> {t("finance.addItem")}</button></div>
                 {lines.map((line, index) => (
                   <div className="invoice-line" key={index}>
-                    <label>{t("finance.itemType")}<select value={line.item_type} onChange={(event) => updateLine(index, "item_type", event.target.value)}><option value="labor">{t("finance.labor")}</option><option value="part">{t("finance.part")}</option><option value="other">{t("finance.other")}</option></select></label>
-                    <label>{t("finance.description")}<input required minLength={2} value={line.description} onChange={(event) => updateLine(index, "description", event.target.value)} placeholder={t("finance.descriptionPlaceholder")} /></label>
+                    <label>{t("finance.itemType")}<select value={line.item_type} onChange={(event) => changeItemType(index, event.target.value as InvoiceItemType)}><option value="labor">{t("finance.labor")}</option><option value="part">{t("finance.part")}</option><option value="other">{t("finance.other")}</option></select></label>
+                    <label>{t("finance.description")}{line.item_type === "part" && <select className="stock-part-select" value={line.inventory_part_id ?? ""} onChange={(event) => selectStockPart(index, event.target.value)}><option value="">{t("finance.manualPart")}</option>{inventoryParts.map((part) => <option key={part.id} value={part.id}>{part.sku} · {part.name} · {part.stock_quantity} {t(`inventory.unit.${part.unit}`)}</option>)}</select>}<input required minLength={2} value={line.description} onChange={(event) => updateLine(index, "description", event.target.value)} placeholder={t("finance.descriptionPlaceholder")} /></label>
                     <label>{t("finance.quantity")}<input required type="number" min="0.01" step="0.01" value={line.quantity} onChange={(event) => updateLine(index, "quantity", event.target.value)} /></label>
                     <label>{t("finance.unitPrice")}<input required type="number" min="0" step="0.01" value={line.unit_price} onChange={(event) => updateLine(index, "unit_price", event.target.value)} /></label>
                     <strong className="line-total">{formatCurrency(Number(line.quantity || 0) * Number(line.unit_price || 0), language)}</strong>

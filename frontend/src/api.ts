@@ -15,6 +15,9 @@ import type {
   Invoice,
   InvoiceCreatePayload,
   PaymentCreatePayload,
+  InventoryPart,
+  InventorySummary,
+  StockMovement,
 } from "./types";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000/api";
@@ -102,6 +105,26 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+  listInventoryParts: () => request<InventoryPart[]>("/inventory/parts"),
+  inventorySummary: () => request<InventorySummary>("/inventory/summary"),
+  listStockMovements: () => request<StockMovement[]>("/inventory/movements"),
+  createInventoryPart: (payload: Record<string, unknown>) =>
+    request<InventoryPart>("/inventory/parts", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  updateInventoryPart: (id: string, payload: Record<string, unknown>) =>
+    request<InventoryPart>(`/inventory/parts/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+  recordStockMovement: (
+    id: string,
+    payload: { movement_type: "stock_in" | "stock_out"; quantity: string; notes: string | null },
+  ) => request<InventoryPart>(`/inventory/parts/${id}/movements`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  }),
   extractionPreview: (text: string) =>
     request<ExtractionPreview>("/ai/extract-preview", {
       method: "POST",

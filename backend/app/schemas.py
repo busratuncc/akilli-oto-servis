@@ -275,6 +275,7 @@ PaymentMethod = Literal["cash", "card_pos", "bank_transfer", "other"]
 
 class InvoiceLineCreate(BaseModel):
     item_type: InvoiceItemType
+    inventory_part_id: uuid.UUID | None = None
     description: str = Field(min_length=2, max_length=240)
     quantity: Decimal = Field(gt=0, le=100_000, decimal_places=2)
     unit_price: Decimal = Field(ge=0, le=100_000_000, decimal_places=2)
@@ -292,6 +293,7 @@ class InvoiceLineRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
+    inventory_part_id: uuid.UUID | None
     item_type: InvoiceItemType
     description: str
     quantity: Decimal
@@ -346,4 +348,116 @@ class FinanceSummary(BaseModel):
     paid_invoices: int
     partially_paid_invoices: int
     overdue_invoices: int
+
+
+StockMovementType = Literal["initial", "stock_in", "stock_out", "invoice_sale"]
+
+
+class InventoryPartCreate(BaseModel):
+    sku: str = Field(min_length=2, max_length=48, pattern=r"^[A-Za-z0-9._/-]+$")
+    name: str = Field(min_length=2, max_length=160)
+    brand: str | None = Field(default=None, max_length=100)
+    category: str | None = Field(default=None, max_length=80)
+    unit: str = Field(default="piece", min_length=1, max_length=20)
+    initial_quantity: Decimal = Field(default=Decimal("0"), ge=0, le=100_000_000, decimal_places=2)
+    low_stock_threshold: Decimal = Field(default=Decimal("1"), ge=0, le=100_000_000, decimal_places=2)
+    purchase_price: Decimal = Field(default=Decimal("0"), ge=0, le=100_000_000, decimal_places=2)
+    sale_price: Decimal = Field(default=Decimal("0"), ge=0, le=100_000_000, decimal_places=2)
+
+    @field_validator("sku", mode="before")
+    @classmethod
+    def normalize_sku(cls, value: str) -> str:
+        return value.strip().upper()
+
+    @field_validator("name", "unit")
+    @classmethod
+    def strip_required_inventory_text(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("Alan boş bırakılamaz")
+        return normalized
+
+    @field_validator("brand", "category")
+    @classmethod
+    def strip_optional_inventory_text(cls, value: str | None) -> str | None:
+        return value.strip() or None if value is not None else None
+
+
+class InventoryPartUpdate(BaseModel):
+    sku: str | None = Field(default=None, min_length=2, max_length=48, pattern=r"^[A-Za-z0-9._/-]+$")
+    name: str | None = Field(default=None, min_length=2, max_length=160)
+    brand: str | None = Field(default=None, max_length=100)
+    category: str | None = Field(default=None, max_length=80)
+    unit: str | None = Field(default=None, min_length=1, max_length=20)
+    low_stock_threshold: Decimal | None = Field(default=None, ge=0, le=100_000_000, decimal_places=2)
+    purchase_price: Decimal | None = Field(default=None, ge=0, le=100_000_000, decimal_places=2)
+    sale_price: Decimal | None = Field(default=None, ge=0, le=100_000_000, decimal_places=2)
+    active: bool | None = None
+
+    @field_validator("sku", mode="before")
+    @classmethod
+    def normalize_optional_sku(cls, value: str | None) -> str | None:
+        return value.strip().upper() if value is not None else None
+
+    @field_validator("name", "unit")
+    @classmethod
+    def strip_optional_required_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("Alan boş bırakılamaz")
+        return normalized
+
+    @field_validator("brand", "category")
+    @classmethod
+    def strip_optional_part_text(cls, value: str | None) -> str | None:
+        return value.strip() or None if value is not None else None
+
+
+class InventoryPartRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    sku: str
+    name: str
+    brand: str | None
+    category: str | None
+    unit: str
+    stock_quantity: Decimal
+    low_stock_threshold: Decimal
+    purchase_price: Decimal
+    sale_price: Decimal
+    active: bool
+    is_low_stock: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+class StockMovementCreate(BaseModel):
+    movement_type: Literal["stock_in", "stock_out"]
+    quantity: Decimal = Field(gt=0, le=100_000_000, decimal_places=2)
+    notes: str | None = Field(default=None, max_length=1000)
+
+
+class StockMovementRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    part_id: uuid.UUID
+    movement_type: StockMovementType
+    quantity_delta: Decimal
+    balance_after: Decimal
+    reference_type: str | None
+    reference_id: uuid.UUID | None
+    notes: str | None
+    created_at: datetime
+
+
+class InventorySummary(BaseModel):
+    total_parts: int
+    low_stock_parts: int
+    out_of_stock_parts: int
+    inventory_cost_value: Decimal
+    inventory_sale_value: Decimal
 
