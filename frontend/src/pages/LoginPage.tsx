@@ -82,29 +82,35 @@ export function LoginPage({ onAuthenticated }: Props) {
     setRegistration((current) => ({ ...current, phone_number: value }));
   }
 
-  async function register(event: FormEvent) {
+  async function register(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!registration.privacy_accepted || !registration.terms_accepted) {
+    const formData = new FormData(event.currentTarget);
+    const privacyAccepted = formData.has("privacy_accepted");
+    const termsAccepted = formData.has("terms_accepted");
+    const phoneNumber = String(formData.get("phone_number") ?? "").trim();
+
+    if (!privacyAccepted || !termsAccepted) {
       setError(t("auth.consentRequired"));
       return;
     }
-    if (!/^\d{6,15}$/.test(registration.phone_number)) {
+    if (!/^\d{6,15}$/.test(phoneNumber)) {
       setPhoneError(t("auth.phoneDigitsOnly"));
       return;
     }
+    setPhoneError("");
     setBusy(true);
     setError("");
     try {
       const payload: RegistrationPayload = {
-        full_name: registration.full_name,
-        workshop_name: registration.workshop_name || null,
-        email: registration.email,
-        phone_country_code: registration.phone_country_code,
-        phone_number: registration.phone_number,
+        full_name: String(formData.get("full_name") ?? "").trim(),
+        workshop_name: String(formData.get("workshop_name") ?? "").trim() || null,
+        email: String(formData.get("email") ?? "").trim(),
+        phone_country_code: String(formData.get("phone_country_code") ?? "+90"),
+        phone_number: phoneNumber,
         preferred_language: language,
         privacy_accepted: true,
         terms_accepted: true,
-        marketing_consent: registration.marketing_consent,
+        marketing_consent: formData.has("marketing_consent"),
       };
       await api.register(payload);
       const result = await api.requestOtp(payload.email, language);
@@ -195,10 +201,10 @@ export function LoginPage({ onAuthenticated }: Props) {
               <p className="auth-subtitle">{t("auth.registerSubtitle")}</p>
               <form className="login-form registration-form" onSubmit={register}>
                 <div className="auth-form-grid">
-                  <label>{t("auth.fullName")}<input required minLength={2} maxLength={120} autoComplete="name" value={registration.full_name} onChange={(event) => setRegistration({ ...registration, full_name: event.target.value })} placeholder={t("auth.fullNamePlaceholder")} /></label>
-                  <label><span className="field-label-row">{t("auth.workshopName")} <small>({t("auth.optional")})</small></span><span className="input-with-icon"><Building2 size={16} /><input maxLength={160} autoComplete="organization" value={registration.workshop_name} onChange={(event) => setRegistration({ ...registration, workshop_name: event.target.value })} placeholder={t("auth.workshopPlaceholder")} /></span></label>
-                  <label className="span-2">{t("login.email")}<input required type="email" autoComplete="email" value={registration.email} onChange={(event) => setRegistration({ ...registration, email: event.target.value })} placeholder={t("login.emailPlaceholder")} /></label>
-                  <label className="span-2">{t("auth.phone")}<span className="phone-input-row"><select aria-label={t("auth.phone")} value={registration.phone_country_code} onChange={(event) => setRegistration({ ...registration, phone_country_code: event.target.value })}>{COUNTRY_CODES.map((country) => <option value={country.code} key={country.code}>{country.label}</option>)}</select><span className="input-with-icon"><Phone size={16} /><input required type="tel" inputMode="numeric" autoComplete="tel-national" minLength={6} maxLength={15} pattern="[0-9]+" value={registration.phone_number} onChange={(event) => updatePhone(event.target.value)} placeholder={t("auth.phonePlaceholder")} /></span></span><small className={phoneError ? "field-error" : "field-help"}>{phoneError || t("auth.phoneHelp")}</small></label>
+                  <label>{t("auth.fullName")}<input name="full_name" required minLength={2} maxLength={120} autoComplete="name" value={registration.full_name} onChange={(event) => setRegistration({ ...registration, full_name: event.target.value })} placeholder={t("auth.fullNamePlaceholder")} /></label>
+                  <label><span className="field-label-row">{t("auth.workshopName")} <small>({t("auth.optional")})</small></span><span className="input-with-icon"><Building2 size={16} /><input name="workshop_name" maxLength={160} autoComplete="organization" value={registration.workshop_name} onChange={(event) => setRegistration({ ...registration, workshop_name: event.target.value })} placeholder={t("auth.workshopPlaceholder")} /></span></label>
+                  <label className="span-2">{t("login.email")}<input name="email" required type="email" autoComplete="email" value={registration.email} onChange={(event) => setRegistration({ ...registration, email: event.target.value })} placeholder={t("login.emailPlaceholder")} /></label>
+                  <label className="span-2">{t("auth.phone")}<span className="phone-input-row"><select name="phone_country_code" aria-label={t("auth.phone")} value={registration.phone_country_code} onChange={(event) => setRegistration({ ...registration, phone_country_code: event.target.value })}>{COUNTRY_CODES.map((country) => <option value={country.code} key={country.code}>{country.label}</option>)}</select><span className="input-with-icon"><Phone size={16} /><input name="phone_number" required type="tel" inputMode="numeric" autoComplete="tel-national" minLength={6} maxLength={15} pattern="[0-9]+" value={registration.phone_number} onChange={(event) => updatePhone(event.target.value)} onBlur={(event) => updatePhone(event.currentTarget.value.trim())} placeholder={t("auth.phonePlaceholder")} /></span></span><small className={phoneError ? "field-error" : "field-help"}>{phoneError || t("auth.phoneHelp")}</small></label>
                 </div>
 
                 <div className="consent-details">
@@ -206,11 +212,11 @@ export function LoginPage({ onAuthenticated }: Props) {
                   <details><summary>{t("auth.termsTitle")}</summary><p>{t("auth.termsText")}</p></details>
                 </div>
 
-                <label className="consent-check"><input required type="checkbox" checked={registration.privacy_accepted} onChange={(event) => setRegistration({ ...registration, privacy_accepted: event.target.checked })} /><span>{t("auth.privacyAccept")}</span></label>
-                <label className="consent-check"><input required type="checkbox" checked={registration.terms_accepted} onChange={(event) => setRegistration({ ...registration, terms_accepted: event.target.checked })} /><span>{t("auth.termsAccept")}</span></label>
-                <label className="consent-check optional-consent"><input type="checkbox" checked={registration.marketing_consent} onChange={(event) => setRegistration({ ...registration, marketing_consent: event.target.checked })} /><span>{t("auth.marketingAccept")}</span></label>
+                <label className="consent-check"><input name="privacy_accepted" required type="checkbox" checked={registration.privacy_accepted} onChange={(event) => setRegistration({ ...registration, privacy_accepted: event.target.checked })} /><span>{t("auth.privacyAccept")}</span></label>
+                <label className="consent-check"><input name="terms_accepted" required type="checkbox" checked={registration.terms_accepted} onChange={(event) => setRegistration({ ...registration, terms_accepted: event.target.checked })} /><span>{t("auth.termsAccept")}</span></label>
+                <label className="consent-check optional-consent"><input name="marketing_consent" type="checkbox" checked={registration.marketing_consent} onChange={(event) => setRegistration({ ...registration, marketing_consent: event.target.checked })} /><span>{t("auth.marketingAccept")}</span></label>
 
-                <button className="primary-button full-button" disabled={busy || Boolean(phoneError)}>{busy ? t("auth.registering") : t("auth.register")}</button>
+                <button className="primary-button full-button" disabled={busy}>{busy ? t("auth.registering") : t("auth.register")}</button>
                 <p className="auth-switch">{t("auth.haveAccount")} <button type="button" onClick={() => { setEmail(registration.email); switchStep("login"); }}>{t("auth.signIn")}</button></p>
               </form>
             </>
