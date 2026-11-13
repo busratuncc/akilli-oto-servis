@@ -8,9 +8,10 @@ from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
 
 from sqlalchemy import delete, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
-from app import models
+from app import models, schemas
 from app.config import settings
 
 
@@ -28,6 +29,14 @@ class OTPInvalidError(OTPError):
     pass
 
 
+class UserNotRegisteredError(OTPError):
+    pass
+
+
+class RegistrationConflictError(OTPError):
+    pass
+
+
 def normalize_email(email: str) -> str:
     return email.strip().casefold()
 
@@ -39,6 +48,53 @@ def _otp_hash(challenge_id: uuid.UUID, email: str, code: str) -> str:
 
 def _token_hash(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
+
+
+def is_registered(user: models.User | None) -> bool:
+    return bool(
+        user
+        and user.full_name
+        and user.phone_country_code
+        and user.phone_number
+        and user.privacy_accepted_at
+        and user.terms_accepted_at
+    )
+
+
+def register_user(db: Session, payload: schemas.RegistrationRequest) -> models.User:
+    email = normalize_email(str(payload.email))
+    existing_user = db.scalar(select(models.User).where(models.User.email == email))
+    if is_registered(existing_user):
+        raise RegistrationConflictError("Bu e-posta adresi zaten kayıtlı")
+    phone_owner_id = db.scalar(
+        select(models.User.id).where(
+            models.User.phone_country_code == payload.phone_country_code,
+            models.User.phone_number == payload.phone_number,
+        )
+    )
+    if phone_owner_id and (existing_user is None or phone_owner_id != existing_user.id):
+        raise RegistrationConflictError("Bu telefon numarası zaten kayıtlı")
+
+    accepted_at = datetime.now(timezone.utc)
+    user = existing_user or models.User(email=email)
+    user.full_name = payload.full_name
+    user.workshop_name = payload.workshop_name
+    user.phone_country_code = payload.phone_country_code
+    user.phone_number = payload.phone_number
+    user.preferred_language = payload.preferred_language
+    user.privacy_accepted_at = accepted_at
+    user.terms_accepted_at = accepted_at
+    user.consent_version = "2026-11-v1"
+    user.marketing_consent = payload.marketing_consent
+    if existing_user is None:
+        db.add(user)
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise RegistrationConflictError("E-posta veya telefon numarası zaten kayıtlı") from exc
+    db.refresh(user)
+    return user
 
 
 def _send_otp_email(email: str, code: str, language: str) -> None:
@@ -89,6 +145,14 @@ def _send_otp_email(email: str, code: str, language: str) -> None:
 
 def request_otp(db: Session, email: str, language: str) -> None:
     normalized = normalize_email(email)
+    user = db.scalar(select(models.User).where(models.User.email == normalized))
+    if not is_registered(user):
+        raise UserNotRegisteredError("Önce kayıt olmalısınız")
+    assert user is not None
+
+    if settings.local_auth_enabled:
+        return
+
     now = datetime.now(timezone.utc)
     latest = db.scalar(
         select(models.OTPChallenge)
@@ -126,6 +190,16 @@ def request_otp(db: Session, email: str, language: str) -> None:
 def verify_otp(db: Session, email: str, code: str, language: str) -> tuple[models.User, str]:
     normalized = normalize_email(email)
     now = datetime.now(timezone.utc)
+    user = db.scalar(select(models.User).where(models.User.email == normalized))
+    if not is_registered(user):
+        raise UserNotRegisteredError("Önce kayıt olmalısınız")
+    assert user is not None
+
+    if settings.local_auth_enabled:
+        if not hmac.compare_digest(code, settings.local_login_code):
+            raise OTPInvalidError("Yerel giriş kodu geçersiz")
+        return _create_session(db, user, language, now)
+
     challenge = db.scalar(
         select(models.OTPChallenge)
         .where(
@@ -145,13 +219,16 @@ def verify_otp(db: Session, email: str, code: str, language: str) -> tuple[model
         raise OTPInvalidError("Kod geçersiz veya süresi dolmuş")
 
     challenge.consumed_at = now
-    user = db.scalar(select(models.User).where(models.User.email == normalized))
-    if user is None:
-        user = models.User(email=normalized, preferred_language=language)
-        db.add(user)
-        db.flush()
-    else:
-        user.preferred_language = language
+    return _create_session(db, user, language, now)
+
+
+def _create_session(
+    db: Session,
+    user: models.User,
+    language: str,
+    now: datetime,
+) -> tuple[models.User, str]:
+    user.preferred_language = language
     user.last_login_at = now
 
     db.execute(

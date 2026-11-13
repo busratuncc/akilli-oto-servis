@@ -18,6 +18,33 @@ WorkOrderStatus = Literal[
 Language = Literal["tr", "en"]
 
 
+class RegistrationRequest(BaseModel):
+    full_name: str = Field(min_length=2, max_length=120)
+    workshop_name: str | None = Field(default=None, max_length=160)
+    email: EmailStr
+    phone_country_code: str = Field(pattern=r"^\+[0-9]{1,4}$")
+    phone_number: str = Field(min_length=6, max_length=15, pattern=r"^[0-9]+$")
+    preferred_language: Language = "tr"
+    privacy_accepted: Literal[True]
+    terms_accepted: Literal[True]
+    marketing_consent: bool = False
+
+    @field_validator("full_name")
+    @classmethod
+    def strip_full_name(cls, value: str) -> str:
+        normalized = value.strip()
+        if len(normalized) < 2:
+            raise ValueError("Ad soyad en az iki karakter olmalıdır")
+        return normalized
+
+    @field_validator("workshop_name")
+    @classmethod
+    def strip_workshop_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return value.strip() or None
+
+
 class OTPRequest(BaseModel):
     email: EmailStr
     language: Language = "tr"
@@ -34,7 +61,12 @@ class AuthUser(BaseModel):
 
     id: uuid.UUID
     email: EmailStr
+    full_name: str
+    workshop_name: str | None
+    phone_country_code: str
+    phone_number: str
     preferred_language: Language
+    marketing_consent: bool
 
 
 class AuthResponse(BaseModel):
@@ -46,6 +78,7 @@ class AuthMessage(BaseModel):
     message: str
     retry_after: int | None = None
     mailpit_url: str | None = None
+    local_code: str | None = None
 
 
 class UserPreferencesUpdate(BaseModel):

@@ -88,7 +88,24 @@ export type DashboardSummary = {
 export type AuthUser = {
   id: string;
   email: string;
+  full_name: string;
+  workshop_name: string | null;
+  phone_country_code: string;
+  phone_number: string;
   preferred_language: "tr" | "en";
+  marketing_consent: boolean;
+};
+
+export type RegistrationPayload = {
+  full_name: string;
+  workshop_name: string | null;
+  email: string;
+  phone_country_code: string;
+  phone_number: string;
+  preferred_language: "tr" | "en";
+  privacy_accepted: true;
+  terms_accepted: true;
+  marketing_consent: boolean;
 };
 
 export type AuthResponse = {
@@ -100,5 +117,6 @@ export type AuthMessage = {
   message: string;
   retry_after?: number | null;
   mailpit_url?: string | null;
+  local_code?: string | null;
 };
 

@@ -2,7 +2,7 @@
 
 Türkçe servis anlatımlarını yapılandırılmış iş emirlerine dönüştürmek, atölyedeki servis sürecini izlemek, OBD-II kodlarını kaydetmek ve geçmiş vakalar arasında arama yapmak için geliştirilen tez uygulaması.
 
-## Mevcut uygulama (v0.4)
+## Mevcut uygulama (v0.5)
 
 - Atölye özetlerini ve iş emri dağılımını gösteren dashboard
 - Anonim kodla araç kaydı ve araç servis geçmişi
@@ -16,7 +16,9 @@ Türkçe servis anlatımlarını yapılandırılmış iş emirlerine dönüştü
 - Tarayıcıdan ses kaydı ve yerel `faster-whisper` ile Türkçe transkripsiyon
 - `multilingual-e5-small` ve pgvector ile Türkçe anlamsal/hibrit vaka araması
 - Cosine benzerliği için HNSW vektör indeksi
-- E-posta ile tek kullanımlık kod (OTP) girişi ve sunucu taraflı oturum
+- Ad-soyad, işletme, e-posta, ülke kodu ve telefonla kullanıcı kaydı
+- Zorunlu gizlilik aydınlatması ve kullanım şartları onayı
+- Geliştirme ortamında `111111` yerel koduyla giriş ve sunucu taraflı oturum
 - Kalıcı açık/koyu tema seçimi
 - Türkçe ve İngilizce arayüz seçimi
 - Masaüstü ve mobil ekranlara uyumlu React arayüzü
@@ -57,14 +59,17 @@ Windows için aynı işlemi yapan yardımcı komut:
 
 Uygulama menüsü dört bölümden oluşur: **Gösterge paneli**, **Araçlar**, **İş emirleri** ve **Akıllı asistan**.
 
-### E-posta OTP ile giriş
+### Kayıt ve yerel kodla giriş
 
-Geliştirme ortamında giriş ekranına herhangi bir geçerli e-posta adresi yazılabilir. Tek kullanımlık kod Mailpit tarafından yakalanır; kodu `http://localhost:8026` adresindeki yerel posta kutusundan alıp giriş ekranına yazın.
+Yeni kullanıcı önce kayıt ekranında profil ve iletişim bilgilerini girer. Telefon numarası ülke kodundan ayrı tutulur ve yalnızca 6-15 rakam kabul eder. Gizlilik aydınlatması ile kullanım şartları onaylanmadan kayıt tamamlanmaz.
 
-- OTP 10 dakika geçerlidir, tek kullanımlıktır ve veritabanında açık metin olarak tutulmaz.
+- Geliştirme giriş kodu: `111111`
+- Kod yalnızca daha önce kayıt olmuş bir e-posta adresiyle kullanılabilir.
 - Başarılı girişte rastgele oturum anahtarı `HttpOnly` çerezle taşınır; veritabanında yalnızca anahtarın hash'i saklanır.
-- Yeni kod isteme aralığı ve hatalı deneme sayısı sınırlıdır.
+- `LOCAL_AUTH_ENABLED=true` ve sabit kod yalnızca yerel geliştirme içindir. Gerçek ortamda kapatılmalıdır.
 - Gerçek ortamda `AUTH_SECRET` uzun ve rastgele bir değere, `AUTH_COOKIE_SECURE=true` olarak ayarlanmalı; `SMTP_*` değerleri gerçek e-posta sağlayıcısıyla değiştirilmelidir.
+
+Mailpit servisi ileride gerçek e-posta OTP akışı yeniden etkinleştirildiğinde test posta kutusu olarak kullanılmak üzere yapılandırmada korunur. Yerel `111111` akışında e-posta gönderilmez.
 
 ### Yerel yapay zekâ modelleri
 

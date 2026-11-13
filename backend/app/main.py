@@ -16,6 +16,7 @@ from app.database import SessionLocal, get_db
 app = FastAPI(title=settings.app_name, version="0.1.0")
 PUBLIC_API_PATHS = {
     f"{settings.api_prefix}/health",
+    f"{settings.api_prefix}/auth/register",
     f"{settings.api_prefix}/auth/request-otp",
     f"{settings.api_prefix}/auth/verify",
 }
@@ -33,7 +34,7 @@ async def require_authenticated_session(request: Request, call_next):
     token = request.cookies.get(settings.auth_cookie_name)
     with SessionLocal() as db:
         user = auth.get_user_by_session(db, token)
-        if user is None:
+        if not auth.is_registered(user):
             return JSONResponse(status_code=401, content={"detail": "Oturum açmanız gerekiyor"})
         request.state.user = user
     return await call_next(request)
@@ -68,6 +69,22 @@ def health(db: Session = Depends(get_db)) -> dict[str, str]:
 
 
 @app.post(
+    f"{settings.api_prefix}/auth/register",
+    response_model=schemas.AuthResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def register(
+    payload: schemas.RegistrationRequest,
+    db: Session = Depends(get_db),
+) -> schemas.AuthResponse:
+    try:
+        user = auth.register_user(db, payload)
+    except auth.RegistrationConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return schemas.AuthResponse(user=schemas.AuthUser.model_validate(user))
+
+
+@app.post(
     f"{settings.api_prefix}/auth/request-otp",
     response_model=schemas.AuthMessage,
     status_code=status.HTTP_202_ACCEPTED,
@@ -78,6 +95,8 @@ def request_login_otp(
 ) -> schemas.AuthMessage:
     try:
         auth.request_otp(db, str(payload.email), payload.language)
+    except auth.UserNotRegisteredError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except auth.OTPRateLimitError as exc:
         raise HTTPException(
             status_code=429,
@@ -85,16 +104,20 @@ def request_login_otp(
             headers={"Retry-After": str(exc.retry_after)},
         ) from exc
     except Exception as exc:
-        raise HTTPException(status_code=503, detail="Giriş e-postası gönderilemedi") from exc
+        raise HTTPException(status_code=503, detail="Giriş kodu hazırlanamadı") from exc
 
-    message = (
-        "Login code sent to your email"
-        if payload.language == "en"
-        else "Giriş kodu e-posta adresinize gönderildi"
-    )
+    if settings.local_auth_enabled:
+        message = "Local login code is ready" if payload.language == "en" else "Yerel giriş kodu hazır"
+    else:
+        message = (
+            "Login code sent to your email"
+            if payload.language == "en"
+            else "Giriş kodu e-posta adresinize gönderildi"
+        )
     return schemas.AuthMessage(
         message=message,
-        mailpit_url=settings.mailpit_public_url,
+        mailpit_url=None if settings.local_auth_enabled else settings.mailpit_public_url,
+        local_code=settings.local_login_code if settings.local_auth_enabled else None,
     )
 
 
@@ -106,6 +129,8 @@ def verify_login_otp(
 ) -> schemas.AuthResponse:
     try:
         user, token = auth.verify_otp(db, str(payload.email), payload.code, payload.language)
+    except auth.UserNotRegisteredError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except auth.OTPInvalidError as exc:
         raise HTTPException(status_code=401, detail=str(exc)) from exc
 

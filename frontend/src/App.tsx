@@ -148,7 +148,7 @@ function App() {
             <label className="compact-select" title={t("common.language")}><Languages size={16} /><select value={language} onChange={(event) => void changeLanguage(event.target.value as "tr" | "en")}><option value="tr">TR</option><option value="en">EN</option></select></label>
             <button className="icon-button" title={theme === "dark" ? t("common.light") : t("common.dark")} onClick={toggleTheme}>{theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}</button>
             <button className="icon-button" title={t("common.refresh")} onClick={() => void refresh()} disabled={loading}><RefreshCw size={18} className={loading ? "spin" : ""} /></button>
-            <button className="user-button" title={user.email} onClick={() => void logout()}><span>{user.email.split("@")[0]}</span><LogOut size={17} /><span className="sr-only">{t("common.logout")}</span></button>
+            <button className="user-button" title={`${user.full_name} · ${user.email}`} onClick={() => void logout()}><span>{user.full_name.split(" ")[0]}</span><LogOut size={17} /><span className="sr-only">{t("common.logout")}</span></button>
           </div>
         </header>
 

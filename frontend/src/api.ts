@@ -8,6 +8,7 @@ import type {
   TranscriptionResult,
   AuthMessage,
   AuthResponse,
+  RegistrationPayload,
 } from "./types";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000/api";
@@ -40,6 +41,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  register: (payload: RegistrationPayload) =>
+    request<AuthResponse>("/auth/register", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
   requestOtp: (email: string, language: "tr" | "en") =>
     request<AuthMessage>("/auth/request-otp", {
       method: "POST",

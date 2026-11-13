@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -18,6 +19,8 @@ class Settings(BaseSettings):
     auth_secret: str = "change-this-development-secret"
     auth_cookie_name: str = "autoservis_session"
     auth_cookie_secure: bool = False
+    local_auth_enabled: bool = True
+    local_login_code: str = Field(default="111111", pattern=r"^\d{6}$")
     otp_expiry_minutes: int = 10
     otp_request_interval_seconds: int = 60
     otp_max_attempts: int = 5
