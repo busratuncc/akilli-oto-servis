@@ -15,6 +15,7 @@ import {
 
 import { api } from "../api";
 import { StatusBadge } from "../components/StatusBadge";
+import { useI18n } from "../i18n";
 import type { AIRuntimeStatus, CaseSearchResult, ExtractionPreview, TranscriptionResult } from "../types";
 import { formatNumber, orderCode } from "../utils";
 import type { IntakeDraft } from "./WorkOrdersPage";
@@ -26,6 +27,7 @@ type Props = {
 };
 
 export function AssistantPage({ onUseDraft, notify, reportError }: Props) {
+  const { language, t } = useI18n();
   const [text, setText] = useState("");
   const [preview, setPreview] = useState<ExtractionPreview | null>(null);
   const [extracting, setExtracting] = useState(false);
@@ -62,7 +64,7 @@ export function AssistantPage({ onUseDraft, notify, reportError }: Props) {
 
   async function startRecording() {
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
-      reportError("Bu tarayıcı ses kaydını desteklemiyor.");
+      reportError(t("assistant.browserUnsupported"));
       return;
     }
     try {
@@ -87,7 +89,7 @@ export function AssistantPage({ onUseDraft, notify, reportError }: Props) {
       recorder.start();
       setRecording(true);
     } catch (error) {
-      reportError(error instanceof Error ? error.message : "Mikrofona erişilemedi.");
+      reportError(error instanceof Error ? error.message : t("assistant.microphoneError"));
     }
   }
 
@@ -103,10 +105,10 @@ export function AssistantPage({ onUseDraft, notify, reportError }: Props) {
       const result = await api.transcribeAudio(audioBlob);
       setTranscription(result);
       setText(result.transcript);
-      notify("Ses kaydı Türkçe metne dönüştürüldü. Ham ses sunucuda saklanmadı.");
+      notify(t("assistant.transcribed"));
       setRuntime(await api.aiStatus());
     } catch (error) {
-      reportError(error instanceof Error ? error.message : "Ses kaydı yazıya dönüştürülemedi.");
+      reportError(error instanceof Error ? error.message : t("assistant.transcribeError"));
     } finally {
       setTranscribing(false);
     }
@@ -118,9 +120,9 @@ export function AssistantPage({ onUseDraft, notify, reportError }: Props) {
     try {
       const result = await api.extractionPreview(text);
       setPreview(result);
-      notify("Servis anlatımı yapılandırıldı; usta kontrolüne hazır.");
+      notify(t("assistant.structured"));
     } catch (error) {
-      reportError(error instanceof Error ? error.message : "Metin çözümlenemedi.");
+      reportError(error instanceof Error ? error.message : t("assistant.analyzeError"));
     } finally {
       setExtracting(false);
     }
@@ -132,7 +134,7 @@ export function AssistantPage({ onUseDraft, notify, reportError }: Props) {
     try {
       setResults(await api.searchCases(query, dtcCode, searchMode));
     } catch (error) {
-      reportError(error instanceof Error ? error.message : "Vaka araması yapılamadı.");
+      reportError(error instanceof Error ? error.message : t("assistant.searchError"));
     } finally {
       setSearching(false);
     }
@@ -158,61 +160,61 @@ export function AssistantPage({ onUseDraft, notify, reportError }: Props) {
   return (
     <div className="page-stack">
       <section className="page-title-row">
-        <div><span className="section-kicker">Karar desteği</span><h2>Akıllı servis asistanı</h2><p>Usta anlatımını düzenli kayda dönüştürün ve doğrulanmış geçmiş vakaları bulun.</p></div>
-        <span className="research-chip"><BrainCircuit size={17} /> {runtime?.whisper_loaded ? "Whisper hazır" : `Whisper ${runtime?.whisper_model ?? "small"}`}</span>
+        <div><span className="section-kicker">{t("assistant.kicker")}</span><h2>{t("assistant.title")}</h2><p>{t("assistant.subtitle")}</p></div>
+        <span className="research-chip"><BrainCircuit size={17} /> {runtime?.whisper_loaded ? t("assistant.ready") : `Whisper ${runtime?.whisper_model ?? "small"}`}</span>
       </section>
 
       <section className="assistant-grid">
         <article className="panel assistant-input-panel">
           <div className="assistant-icon"><Bot size={25} /></div>
-          <span className="section-kicker">Akıllı kabul</span>
-          <h3>Ustanın anlatımını yapılandır</h3>
-          <p className="panel-copy">Konuşma metnini girin; sistem kilometreyi, belirtileri ve OBD-II kodlarını ayırsın.</p>
+          <span className="section-kicker">{t("assistant.intake")}</span>
+          <h3>{t("assistant.structure")}</h3>
+          <p className="panel-copy">{t("assistant.structureHelp")}</p>
           <div className={`recorder-box ${recording ? "recording" : ""}`}>
             <div className="recorder-status">
               <span className="record-dot" />
-              <div><strong>{recording ? "Kayıt yapılıyor" : audioBlob ? "Ses kaydı hazır" : "Sesli servis kabulü"}</strong><small>Whisper Türkçe · ham ses varsayılan olarak silinir</small></div>
+              <div><strong>{recording ? t("assistant.recording") : audioBlob ? t("assistant.audioReady") : t("assistant.voiceIntake")}</strong><small>{t("assistant.audioPrivacy")}</small></div>
             </div>
             <div className="recorder-actions">
-              {!recording ? <button type="button" className="record-button" onClick={() => void startRecording()}><Mic size={17} /> Kaydı başlat</button> : <button type="button" className="stop-button" onClick={stopRecording}><Square size={15} /> Kaydı durdur</button>}
-              {!recording && <label className="ghost-button upload-button"><UploadCloud size={16} /> Dosya seç<input hidden type="file" accept="audio/webm,audio/wav,audio/mpeg,audio/mp4,audio/ogg,audio/flac" onChange={(event) => { const file = event.target.files?.[0]; if (file) { setAudioBlob(file); setTranscription(null); } }} /></label>}
+              {!recording ? <button type="button" className="record-button" onClick={() => void startRecording()}><Mic size={17} /> {t("assistant.start")}</button> : <button type="button" className="stop-button" onClick={stopRecording}><Square size={15} /> {t("assistant.stop")}</button>}
+              {!recording && <label className="ghost-button upload-button"><UploadCloud size={16} /> {t("assistant.chooseFile")}<input hidden type="file" accept="audio/webm,audio/wav,audio/mpeg,audio/mp4,audio/ogg,audio/flac" onChange={(event) => { const file = event.target.files?.[0]; if (file) { setAudioBlob(file); setTranscription(null); } }} /></label>}
             </div>
             {audioUrl && <audio className="audio-player" controls src={audioUrl} />}
-            {audioBlob && <button type="button" className="secondary-button full-button" disabled={transcribing} onClick={() => void transcribeRecording()}><AudioLines size={17} /> {transcribing ? "Whisper modeli çalışıyor…" : "Sesi Türkçe metne çevir"}</button>}
-            {transcription && <div className="transcription-meta"><span>{transcription.provider}</span><span>{transcription.duration_seconds.toFixed(1)} sn</span><span>TR %{Math.round(transcription.language_probability * 100)}</span></div>}
+            {audioBlob && <button type="button" className="secondary-button full-button" disabled={transcribing} onClick={() => void transcribeRecording()}><AudioLines size={17} /> {transcribing ? t("assistant.transcribing") : t("assistant.transcribe")}</button>}
+            {transcription && <div className="transcription-meta"><span>{transcription.provider}</span><span>{transcription.duration_seconds.toFixed(1)} s</span><span>{transcription.language.toUpperCase()} %{Math.round(transcription.language_probability * 100)}</span></div>}
           </div>
           <form onSubmit={extract}>
-            <label>Servis anlatımı<textarea rows={9} required minLength={5} value={text} onChange={(event) => setText(event.target.value)} placeholder="Araç 182 bin kilometrede. Düşük devirde çekişten düşüyor ve P0299 kodu veriyor. Turbo hortumu kontrol edildi…" /></label>
-            <button className="primary-button full-button" disabled={extracting}><Sparkles size={17} /> {extracting ? "Çözümleniyor…" : "Anlatımı çözümle"}</button>
+            <label>{t("assistant.text")}<textarea rows={9} required minLength={5} value={text} onChange={(event) => setText(event.target.value)} placeholder={t("assistant.textPlaceholder")} /></label>
+            <button className="primary-button full-button" disabled={extracting}><Sparkles size={17} /> {extracting ? t("assistant.analyzing") : t("assistant.analyze")}</button>
           </form>
         </article>
 
         <article className="panel extraction-panel">
-          <div className="panel-heading"><div><span className="section-kicker">Yapılandırılmış ön izleme</span><h3>Usta kontrolü</h3></div>{preview && <span className="provider-chip">{preview.provider}</span>}</div>
+          <div className="panel-heading"><div><span className="section-kicker">{t("assistant.preview")}</span><h3>{t("assistant.review")}</h3></div>{preview && <span className="provider-chip">{preview.provider}</span>}</div>
           {preview ? (
             <>
               <div className="extraction-metrics">
-                <div><span>Kilometre</span><strong>{formatNumber(preview.mileage)} km</strong></div>
-                <div><span>OBD kodu</span><strong>{preview.dtc_codes.length}</strong></div>
+                <div><span>{t("assistant.mileage")}</span><strong>{formatNumber(preview.mileage, language)} km</strong></div>
+                <div><span>{t("assistant.dtcCount")}</span><strong>{preview.dtc_codes.length}</strong></div>
               </div>
-              <div className="extraction-section"><span>Algılanan belirtiler</span><div className="tag-row">{Array.isArray(preview.probable_fields.symptoms) && preview.probable_fields.symptoms.length ? preview.probable_fields.symptoms.map((item) => <span className="soft-tag" key={String(item)}>{String(item)}</span>) : <span className="muted-text">Belirti sınıflandırılamadı.</span>}</div></div>
-              <div className="extraction-section"><span>OBD-II bilgi tabanı</span><div className="dtc-detail-list">{preview.dtc_details.map((item) => <div key={item.code}><strong>{item.code}</strong><p>{item.description || "Yerel açıklama bulunamadı."}</p></div>)}{preview.dtc_details.length === 0 && <span className="muted-text">Kod bulunamadı.</span>}</div></div>
+              <div className="extraction-section"><span>{t("assistant.detectedSymptoms")}</span><div className="tag-row">{Array.isArray(preview.probable_fields.symptoms) && preview.probable_fields.symptoms.length ? preview.probable_fields.symptoms.map((item) => <span className="soft-tag" key={String(item)}>{String(item)}</span>) : <span className="muted-text">{t("assistant.noSymptoms")}</span>}</div></div>
+              <div className="extraction-section"><span>{t("assistant.knowledgeBase")}</span><div className="dtc-detail-list">{preview.dtc_details.map((item) => <div key={item.code}><strong>{item.code}</strong><p>{item.description || t("assistant.noDescription")}</p></div>)}{preview.dtc_details.length === 0 && <span className="muted-text">{t("assistant.noDetectedDtc")}</span>}</div></div>
               <div className="warning-box"><ShieldAlert size={19} /><span>{preview.warnings.join(" ")}</span></div>
-              <button className="secondary-button full-button" onClick={usePreview}>İş emrine aktar <ArrowRight size={17} /></button>
+              <button className="secondary-button full-button" onClick={usePreview}>{t("assistant.useDraft")} <ArrowRight size={17} /></button>
             </>
           ) : (
-            <div className="empty-state tall-empty"><Sparkles size={32} /><p>Çözümlenen alanlar burada görünecek.</p><small>Çıktı kesin teşhis değildir ve usta onayı gerektirir.</small></div>
+            <div className="empty-state tall-empty"><Sparkles size={32} /><p>{t("assistant.noPreview")}</p><small>{t("assistant.disclaimer")}</small></div>
           )}
         </article>
       </section>
 
       <section className="panel">
-        <div className="panel-heading"><div><span className="section-kicker">Servis hafızası</span><h3>Benzer doğrulanmış vaka ara</h3></div></div>
+        <div className="panel-heading"><div><span className="section-kicker">{t("assistant.serviceMemory")}</span><h3>{t("assistant.searchVerified")}</h3></div></div>
         <form className="case-search-form" onSubmit={search}>
-          <label className="search-input"><Search size={17} /><input required minLength={2} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Örn. çekiş düşüklüğü turbo" /></label>
+          <label className="search-input"><Search size={17} /><input required minLength={2} value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("assistant.searchPlaceholder")} /></label>
           <input value={dtcCode} onChange={(event) => setDtcCode(event.target.value.toUpperCase())} maxLength={5} placeholder="P0299" />
-          <select value={searchMode} onChange={(event) => setSearchMode(event.target.value as "hybrid" | "keyword" | "semantic")}><option value="hybrid">Hibrit arama</option><option value="semantic">Anlamsal</option><option value="keyword">Anahtar kelime</option></select>
-          <button className="primary-button" disabled={searching}>{searching ? "Aranıyor…" : "Vakaları ara"}</button>
+          <select value={searchMode} onChange={(event) => setSearchMode(event.target.value as "hybrid" | "keyword" | "semantic")}><option value="hybrid">{t("assistant.modeHybrid")}</option><option value="semantic">{t("assistant.modeSemantic")}</option><option value="keyword">{t("assistant.modeKeyword")}</option></select>
+          <button className="primary-button" disabled={searching}>{searching ? t("assistant.searching") : t("assistant.search")}</button>
         </form>
         <div className="case-result-grid">
           {results.map((result) => (
@@ -225,7 +227,7 @@ export function AssistantPage({ onUseDraft, notify, reportError }: Props) {
               <div className="match-footer"><small>{result.match_reason}</small>{result.similarity_score != null && <strong>%{Math.round(result.similarity_score * 100)}</strong>}</div>
             </article>
           ))}
-          {results.length === 0 && <div className="empty-state wide-empty"><Search size={28} /><p>Arama yaptığınızda benzer servis kayıtları burada listelenecek.</p></div>}
+          {results.length === 0 && <div className="empty-state wide-empty"><Search size={28} /><p>{t("assistant.resultsPlaceholder")}</p></div>}
         </div>
       </section>
     </div>

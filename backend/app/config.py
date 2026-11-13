@@ -15,6 +15,20 @@ class Settings(BaseSettings):
     whisper_compute_type: str = "int8"
     embedding_model: str = "intfloat/multilingual-e5-small"
     max_audio_size_mb: int = 25
+    auth_secret: str = "change-this-development-secret"
+    auth_cookie_name: str = "autoservis_session"
+    auth_cookie_secure: bool = False
+    otp_expiry_minutes: int = 10
+    otp_request_interval_seconds: int = 60
+    otp_max_attempts: int = 5
+    session_expiry_days: int = 7
+    smtp_host: str = "mailpit"
+    smtp_port: int = 1025
+    smtp_username: str | None = None
+    smtp_password: str | None = None
+    smtp_starttls: bool = False
+    mail_from: str = "Akıllı Oto Servis <noreply@akilli-servis.local>"
+    mailpit_public_url: str = "http://localhost:8026"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

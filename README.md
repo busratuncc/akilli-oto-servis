@@ -2,7 +2,7 @@
 
 Türkçe servis anlatımlarını yapılandırılmış iş emirlerine dönüştürmek, atölyedeki servis sürecini izlemek, OBD-II kodlarını kaydetmek ve geçmiş vakalar arasında arama yapmak için geliştirilen tez uygulaması.
 
-## Mevcut uygulama (v0.3)
+## Mevcut uygulama (v0.4)
 
 - Atölye özetlerini ve iş emri dağılımını gösteren dashboard
 - Anonim kodla araç kaydı ve araç servis geçmişi
@@ -16,6 +16,9 @@ Türkçe servis anlatımlarını yapılandırılmış iş emirlerine dönüştü
 - Tarayıcıdan ses kaydı ve yerel `faster-whisper` ile Türkçe transkripsiyon
 - `multilingual-e5-small` ve pgvector ile Türkçe anlamsal/hibrit vaka araması
 - Cosine benzerliği için HNSW vektör indeksi
+- E-posta ile tek kullanımlık kod (OTP) girişi ve sunucu taraflı oturum
+- Kalıcı açık/koyu tema seçimi
+- Türkçe ve İngilizce arayüz seçimi
 - Masaüstü ve mobil ekranlara uyumlu React arayüzü
 
 ## Başlangıç kapsamı
@@ -50,8 +53,18 @@ Windows için aynı işlemi yapan yardımcı komut:
 3. Arayüz: http://localhost:5174
 4. API dokümantasyonu: http://localhost:8000/docs
 5. Sağlık kontrolü: http://localhost:8000/api/health
+6. Geliştirme e-posta kutusu (Mailpit): http://localhost:8026
 
 Uygulama menüsü dört bölümden oluşur: **Gösterge paneli**, **Araçlar**, **İş emirleri** ve **Akıllı asistan**.
+
+### E-posta OTP ile giriş
+
+Geliştirme ortamında giriş ekranına herhangi bir geçerli e-posta adresi yazılabilir. Tek kullanımlık kod Mailpit tarafından yakalanır; kodu `http://localhost:8026` adresindeki yerel posta kutusundan alıp giriş ekranına yazın.
+
+- OTP 10 dakika geçerlidir, tek kullanımlıktır ve veritabanında açık metin olarak tutulmaz.
+- Başarılı girişte rastgele oturum anahtarı `HttpOnly` çerezle taşınır; veritabanında yalnızca anahtarın hash'i saklanır.
+- Yeni kod isteme aralığı ve hatalı deneme sayısı sınırlıdır.
+- Gerçek ortamda `AUTH_SECRET` uzun ve rastgele bir değere, `AUTH_COOKIE_SECURE=true` olarak ayarlanmalı; `SMTP_*` değerleri gerçek e-posta sağlayıcısıyla değiştirilmelidir.
 
 ### Yerel yapay zekâ modelleri
 
@@ -68,6 +81,7 @@ docker compose exec -T backend python -m app.backfill_embeddings
 Embedding modeli geçici olarak yüklenemezse uygulama bunu anlamsal model olarak göstermeden deterministik bir metin-vektörü yedeğine düşer.
 
 PostgreSQL, bilgisayardaki mevcut servislerle çakışmaması için dışarıya `localhost:55432` üzerinden açılır. Docker içindeki servisler kendi aralarında standart 5432 portunu kullanır. Arayüz de aynı nedenle 5174 portundadır.
+Bu projeye ait Mailpit arayüzü, bilgisayardaki diğer geliştirme servisleriyle çakışmaması için 8026 portundadır.
 
 ## Durdurma
 
@@ -107,12 +121,12 @@ Komut; backend testlerini, frontend lint kontrolünü, TypeScript production der
 
 ```text
 React/Vite arayüzü
+        |  HttpOnly oturum çerezi
+        v
+FastAPI REST API ----> Mailpit / SMTP
         |
         v
-FastAPI REST API
-        |
-        v
-PostgreSQL + pgvector
+PostgreSQL + pgvector (kullanıcı, OTP hash'i, oturum hash'i ve servis verisi)
 ```
 
 ## Gizlilik

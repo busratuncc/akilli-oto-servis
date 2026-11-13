@@ -1,26 +1,33 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Bell, CheckCircle2, RefreshCw, Server, X } from "lucide-react";
+import { CheckCircle2, Languages, LogOut, Moon, RefreshCw, Server, Sun, X } from "lucide-react";
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 
-import { api } from "./api";
+import { api, ApiError } from "./api";
 import { Sidebar } from "./components/Sidebar";
+import { useI18n } from "./i18n";
 import { AssistantPage } from "./pages/AssistantPage";
 import { DashboardPage } from "./pages/DashboardPage";
+import { LoginPage } from "./pages/LoginPage";
 import type { IntakeDraft } from "./pages/WorkOrdersPage";
 import { WorkOrdersPage } from "./pages/WorkOrdersPage";
 import { VehiclesPage } from "./pages/VehiclesPage";
-import type { DashboardSummary, Vehicle, WorkOrder } from "./types";
+import { useTheme } from "./theme";
+import type { AuthUser, DashboardSummary, Vehicle, WorkOrder } from "./types";
 
-const PAGE_TITLES: Record<string, string> = {
-  "/": "Gösterge paneli",
-  "/vehicles": "Araçlar",
-  "/work-orders": "İş emirleri",
-  "/assistant": "Akıllı asistan",
+const PAGE_TITLE_KEYS: Record<string, string> = {
+  "/": "nav.dashboard",
+  "/vehicles": "nav.vehicles",
+  "/work-orders": "nav.orders",
+  "/assistant": "nav.assistant",
 };
 
 function App() {
   const location = useLocation();
   const navigate = useNavigate();
+  const { language, setLanguage, t } = useI18n();
+  const { theme, toggleTheme } = useTheme();
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [orders, setOrders] = useState<WorkOrder[]>([]);
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
@@ -46,15 +53,36 @@ function App() {
       setError("");
     } catch (requestError) {
       setHealthy(false);
-      setError(requestError instanceof Error ? requestError.message : "Sunucu bağlantısı kurulamadı.");
+      if (requestError instanceof ApiError && requestError.status === 401) {
+        setUser(null);
+      } else {
+        setError(requestError instanceof Error ? requestError.message : t("common.connectionError"));
+      }
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    let active = true;
+    void api.me()
+      .then((result) => {
+        if (!active) return;
+        setUser(result.user);
+        setLanguage(result.user.preferred_language);
+      })
+      .catch(() => {
+        if (active) setUser(null);
+      })
+      .finally(() => {
+        if (active) setAuthLoading(false);
+      });
+    return () => { active = false; };
+  }, [setLanguage]);
+
+  useEffect(() => {
+    if (user) void refresh();
+  }, [refresh, user?.id]);
 
   useEffect(() => {
     if (!notice) return;
@@ -74,19 +102,53 @@ function App() {
     navigate("/work-orders");
   }
 
+  async function changeLanguage(next: "tr" | "en") {
+    setLanguage(next);
+    if (!user) return;
+    try {
+      const result = await api.updatePreferences(next);
+      setUser(result.user);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : t("common.connectionError"));
+    }
+  }
+
+  async function logout() {
+    try {
+      await api.logout();
+    } finally {
+      setUser(null);
+      setVehicles([]);
+      setOrders([]);
+      setSummary(null);
+      setHealthy(false);
+      navigate("/");
+    }
+  }
+
+  if (authLoading) {
+    return <div className="auth-splash"><span className="splash-mark"><Server size={24} /></span><strong>{t("app.name")}</strong></div>;
+  }
+
+  if (!user) {
+    return <LoginPage onAuthenticated={(authenticatedUser) => { setUser(authenticatedUser); setLanguage(authenticatedUser.preferred_language); }} />;
+  }
+
   return (
     <div className="app-shell">
       <Sidebar />
       <div className="workspace">
         <header className="topbar">
           <div>
-            <span className="breadcrumb">Akıllı Oto Servis /</span>
-            <strong>{PAGE_TITLES[location.pathname] ?? "Uygulama"}</strong>
+            <span className="breadcrumb">{t("app.name")} /</span>
+            <strong>{t(PAGE_TITLE_KEYS[location.pathname] ?? "common.app")}</strong>
           </div>
           <div className="topbar-actions">
-            <span className={`server-pill ${healthy ? "online" : "offline"}`}><Server size={15} /> {healthy ? "Sistem çevrimiçi" : "Bağlantı yok"}</span>
-            <button className="icon-button" title="Verileri yenile" onClick={() => void refresh()} disabled={loading}><RefreshCw size={18} className={loading ? "spin" : ""} /></button>
-            <button className="icon-button" title="Bildirimler"><Bell size={18} /></button>
+            <span className={`server-pill ${healthy ? "online" : "offline"}`}><Server size={15} /> {healthy ? t("common.online") : t("common.offline")}</span>
+            <label className="compact-select" title={t("common.language")}><Languages size={16} /><select value={language} onChange={(event) => void changeLanguage(event.target.value as "tr" | "en")}><option value="tr">TR</option><option value="en">EN</option></select></label>
+            <button className="icon-button" title={theme === "dark" ? t("common.light") : t("common.dark")} onClick={toggleTheme}>{theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}</button>
+            <button className="icon-button" title={t("common.refresh")} onClick={() => void refresh()} disabled={loading}><RefreshCw size={18} className={loading ? "spin" : ""} /></button>
+            <button className="user-button" title={user.email} onClick={() => void logout()}><span>{user.email.split("@")[0]}</span><LogOut size={17} /><span className="sr-only">{t("common.logout")}</span></button>
           </div>
         </header>
 

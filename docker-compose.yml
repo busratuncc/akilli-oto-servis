@@ -28,6 +28,19 @@ services:
       WHISPER_COMPUTE_TYPE: ${WHISPER_COMPUTE_TYPE:-int8}
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-intfloat/multilingual-e5-small}
       OMP_NUM_THREADS: ${OMP_NUM_THREADS:-4}
+      AUTH_SECRET: ${AUTH_SECRET:-local-development-secret-change-in-production}
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
+      OTP_EXPIRY_MINUTES: ${OTP_EXPIRY_MINUTES:-10}
+      OTP_REQUEST_INTERVAL_SECONDS: ${OTP_REQUEST_INTERVAL_SECONDS:-60}
+      OTP_MAX_ATTEMPTS: ${OTP_MAX_ATTEMPTS:-5}
+      SESSION_EXPIRY_DAYS: ${SESSION_EXPIRY_DAYS:-7}
+      SMTP_HOST: ${SMTP_HOST:-mailpit}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_STARTTLS: ${SMTP_STARTTLS:-false}
+      MAIL_FROM: ${MAIL_FROM:-Akıllı Oto Servis <noreply@akilli-servis.local>}
+      MAILPIT_PUBLIC_URL: ${MAILPIT_PUBLIC_URL:-http://localhost:8026}
     ports:
       - "8000:8000"
     volumes:
@@ -37,6 +50,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      mailpit:
+        condition: service_started
     command: ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
@@ -58,6 +73,13 @@ services:
       backend:
         condition: service_healthy
     command: ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
+
+  mailpit:
+    image: axllent/mailpit:v1.27
+    ports:
+      - "8026:8025"
+      - "1026:1025"
+    restart: unless-stopped
 
 volumes:
   postgres_data:

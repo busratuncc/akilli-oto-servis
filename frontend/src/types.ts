@@ -85,3 +85,20 @@ export type DashboardSummary = {
   recent_work_orders: WorkOrder[];
 };
 
+export type AuthUser = {
+  id: string;
+  email: string;
+  preferred_language: "tr" | "en";
+};
+
+export type AuthResponse = {
+  user: AuthUser;
+  mailpit_url?: string | null;
+};
+
+export type AuthMessage = {
+  message: string;
+  retry_after?: number | null;
+  mailpit_url?: string | null;
+};
+

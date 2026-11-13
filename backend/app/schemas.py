@@ -4,7 +4,7 @@ from typing import Literal
 
 import re
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 
 WorkOrderStatus = Literal[
@@ -15,6 +15,41 @@ WorkOrderStatus = Literal[
     "completed",
     "cancelled",
 ]
+Language = Literal["tr", "en"]
+
+
+class OTPRequest(BaseModel):
+    email: EmailStr
+    language: Language = "tr"
+
+
+class OTPVerify(BaseModel):
+    email: EmailStr
+    code: str = Field(pattern=r"^\d{6}$")
+    language: Language = "tr"
+
+
+class AuthUser(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    email: EmailStr
+    preferred_language: Language
+
+
+class AuthResponse(BaseModel):
+    user: AuthUser
+    mailpit_url: str | None = None
+
+
+class AuthMessage(BaseModel):
+    message: str
+    retry_after: int | None = None
+    mailpit_url: str | None = None
+
+
+class UserPreferencesUpdate(BaseModel):
+    preferred_language: Language
 
 
 class VehicleCreate(BaseModel):

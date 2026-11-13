@@ -1,25 +1,23 @@
 import type { WorkOrderStatus } from "./types";
 
-export const STATUS_LABELS: Record<WorkOrderStatus, string> = {
-  draft: "Taslak",
-  inspection: "İncelemede",
-  repairing: "Onarımda",
-  waiting_parts: "Parça bekliyor",
-  completed: "Tamamlandı",
-  cancelled: "İptal",
-};
+export const WORK_ORDER_STATUSES: WorkOrderStatus[] = [
+  "draft",
+  "inspection",
+  "repairing",
+  "waiting_parts",
+  "completed",
+  "cancelled",
+];
 
-export const STATUS_OPTIONS = Object.entries(STATUS_LABELS) as [WorkOrderStatus, string][];
-
-export function formatDate(value: string) {
-  return new Intl.DateTimeFormat("tr-TR", {
+export function formatDate(value: string, language: "tr" | "en" = "tr") {
+  return new Intl.DateTimeFormat(language === "tr" ? "tr-TR" : "en-GB", {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(value));
 }
 
-export function formatNumber(value: number | null | undefined) {
-  return value == null ? "—" : new Intl.NumberFormat("tr-TR").format(value);
+export function formatNumber(value: number | null | undefined, language: "tr" | "en" = "tr") {
+  return value == null ? "—" : new Intl.NumberFormat(language === "tr" ? "tr-TR" : "en-GB").format(value);
 }
 
 export function orderCode(id: string) {

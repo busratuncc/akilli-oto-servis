@@ -11,4 +11,5 @@ httpx==0.28.1
 faster-whisper==1.2.1
 fastembed==0.9.1
 av==18.1.0
+email-validator==2.3.0
 

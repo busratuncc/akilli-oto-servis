@@ -2,6 +2,7 @@ import { FormEvent, useMemo, useState } from "react";
 import { CarFront, Fuel, Gauge, Plus, Search } from "lucide-react";
 
 import { api } from "../api";
+import { useI18n } from "../i18n";
 import type { Vehicle, WorkOrder } from "../types";
 import { formatNumber } from "../utils";
 
@@ -24,6 +25,7 @@ type Props = {
 };
 
 export function VehiclesPage({ vehicles, orders, onChanged, notify, reportError }: Props) {
+  const { language, t } = useI18n();
   const [form, setForm] = useState(emptyVehicle);
   const [query, setQuery] = useState("");
   const [showForm, setShowForm] = useState(vehicles.length === 0);
@@ -50,10 +52,10 @@ export function VehiclesPage({ vehicles, orders, onChanged, notify, reportError 
       });
       setForm(emptyVehicle);
       setShowForm(false);
-      notify("Araç başarıyla kaydedildi.");
+      notify(t("vehicles.saved"));
       await onChanged();
     } catch (error) {
-      reportError(error instanceof Error ? error.message : "Araç kaydedilemedi.");
+      reportError(error instanceof Error ? error.message : t("vehicles.saveError"));
     } finally {
       setSaving(false);
     }
@@ -62,30 +64,30 @@ export function VehiclesPage({ vehicles, orders, onChanged, notify, reportError 
   return (
     <div className="page-stack">
       <section className="page-title-row">
-        <div><span className="section-kicker">Araç yönetimi</span><h2>Kayıtlı araçlar</h2><p>Gerçek plaka yerine anonim kodla güvenli servis geçmişi oluşturun.</p></div>
-        <button className="primary-button" onClick={() => setShowForm((value) => !value)}><Plus size={18} /> Araç ekle</button>
+        <div><span className="section-kicker">{t("vehicles.kicker")}</span><h2>{t("vehicles.title")}</h2><p>{t("vehicles.subtitle")}</p></div>
+        <button className="primary-button" onClick={() => setShowForm((value) => !value)}><Plus size={18} /> {t("vehicles.add")}</button>
       </section>
 
       {showForm && (
         <section className="panel form-panel">
-          <div className="panel-heading"><div><span className="section-kicker">Yeni kayıt</span><h3>Araç bilgileri</h3></div></div>
+          <div className="panel-heading"><div><span className="section-kicker">{t("vehicles.new")}</span><h3>{t("vehicles.info")}</h3></div></div>
           <form className="form-grid" onSubmit={submit}>
-            <label>Anonim araç kodu<input required minLength={3} value={form.anonymous_code} onChange={(event) => setForm({ ...form, anonymous_code: event.target.value.toUpperCase() })} placeholder="ARAC-001" /></label>
-            <label>Marka<input required value={form.brand} onChange={(event) => setForm({ ...form, brand: event.target.value })} placeholder="Renault" /></label>
-            <label>Model<input required value={form.model} onChange={(event) => setForm({ ...form, model: event.target.value })} placeholder="Clio" /></label>
-            <label>Model yılı<input type="number" min="1950" max="2100" value={form.model_year} onChange={(event) => setForm({ ...form, model_year: event.target.value })} placeholder="2018" /></label>
-            <label>Motor<input value={form.engine} onChange={(event) => setForm({ ...form, engine: event.target.value })} placeholder="1.5 dCi" /></label>
-            <label>Yakıt tipi<select value={form.fuel_type} onChange={(event) => setForm({ ...form, fuel_type: event.target.value })}><option value="">Seçiniz</option><option>Dizel</option><option>Benzin</option><option>LPG</option><option>Hibrit</option><option>Elektrik</option></select></label>
-            <label>Kilometre<input type="number" min="0" value={form.mileage} onChange={(event) => setForm({ ...form, mileage: event.target.value })} placeholder="182000" /></label>
-            <div className="form-actions"><button type="button" className="ghost-button" onClick={() => setShowForm(false)}>Vazgeç</button><button className="primary-button" disabled={saving}>{saving ? "Kaydediliyor…" : "Aracı kaydet"}</button></div>
+            <label>{t("vehicles.code")}<input required minLength={3} value={form.anonymous_code} onChange={(event) => setForm({ ...form, anonymous_code: event.target.value.toUpperCase() })} placeholder="ARAC-001" /></label>
+            <label>{t("vehicles.brand")}<input required value={form.brand} onChange={(event) => setForm({ ...form, brand: event.target.value })} placeholder="Renault" /></label>
+            <label>{t("vehicles.model")}<input required value={form.model} onChange={(event) => setForm({ ...form, model: event.target.value })} placeholder="Clio" /></label>
+            <label>{t("vehicles.year")}<input type="number" min="1950" max="2100" value={form.model_year} onChange={(event) => setForm({ ...form, model_year: event.target.value })} placeholder="2018" /></label>
+            <label>{t("vehicles.engine")}<input value={form.engine} onChange={(event) => setForm({ ...form, engine: event.target.value })} placeholder="1.5 dCi" /></label>
+            <label>{t("vehicles.fuel")}<select value={form.fuel_type} onChange={(event) => setForm({ ...form, fuel_type: event.target.value })}><option value="">{t("common.select")}</option><option>Diesel</option><option>Gasoline</option><option>LPG</option><option>Hybrid</option><option>Electric</option></select></label>
+            <label>{t("vehicles.mileage")}<input type="number" min="0" value={form.mileage} onChange={(event) => setForm({ ...form, mileage: event.target.value })} placeholder="182000" /></label>
+            <div className="form-actions"><button type="button" className="ghost-button" onClick={() => setShowForm(false)}>{t("common.cancel")}</button><button className="primary-button" disabled={saving}>{saving ? t("common.saving") : t("vehicles.save")}</button></div>
           </form>
         </section>
       )}
 
       <section className="panel">
         <div className="list-toolbar">
-          <div><span className="section-kicker">{vehicles.length} kayıt</span><h3>Araç envanteri</h3></div>
-          <label className="search-input"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Kod, marka veya model ara" /></label>
+          <div><span className="section-kicker">{t("vehicles.records", { count: vehicles.length })}</span><h3>{t("vehicles.inventory")}</h3></div>
+          <label className="search-input"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("vehicles.search")} /></label>
         </div>
 
         <div className="vehicle-grid">
@@ -95,13 +97,13 @@ export function VehiclesPage({ vehicles, orders, onChanged, notify, reportError 
               <article className="vehicle-card" key={vehicle.id}>
                 <div className="vehicle-card-head"><span className="vehicle-icon"><CarFront size={24} /></span><span className="code-chip">{vehicle.anonymous_code}</span></div>
                 <h3>{vehicle.brand} {vehicle.model}</h3>
-                <p>{vehicle.model_year ?? "Yıl belirtilmedi"} · {vehicle.engine || "Motor belirtilmedi"}</p>
-                <div className="vehicle-meta"><span><Gauge size={15} /> {formatNumber(vehicle.mileage)} km</span><span><Fuel size={15} /> {vehicle.fuel_type || "—"}</span></div>
-                <div className="vehicle-footer"><strong>{serviceCount}</strong><span>servis kaydı</span></div>
+                <p>{vehicle.model_year ?? t("vehicles.noYear")} · {vehicle.engine || t("vehicles.noEngine")}</p>
+                <div className="vehicle-meta"><span><Gauge size={15} /> {formatNumber(vehicle.mileage, language)} km</span><span><Fuel size={15} /> {vehicle.fuel_type || "—"}</span></div>
+                <div className="vehicle-footer"><strong>{serviceCount}</strong><span>{t("vehicles.serviceRecord")}</span></div>
               </article>
             );
           })}
-          {filteredVehicles.length === 0 && <div className="empty-state wide-empty"><CarFront size={30} /><p>Aramanızla eşleşen araç bulunamadı.</p></div>}
+          {filteredVehicles.length === 0 && <div className="empty-state wide-empty"><CarFront size={30} /><p>{t("vehicles.noMatch")}</p></div>}
         </div>
       </section>
     </div>

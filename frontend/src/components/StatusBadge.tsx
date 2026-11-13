@@ -1,6 +1,7 @@
 import type { WorkOrderStatus } from "../types";
-import { STATUS_LABELS } from "../utils";
+import { useI18n } from "../i18n";
 
 export function StatusBadge({ status }: { status: WorkOrderStatus }) {
-  return <span className={`status-badge status-${status}`}>{STATUS_LABELS[status]}</span>;
+  const { t } = useI18n();
+  return <span className={`status-badge status-${status}`}>{t(`status.${status}`)}</span>;
 }

@@ -1,18 +1,46 @@
 import uuid
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile, status
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 from starlette.concurrency import run_in_threadpool
 
-from app import ml, models, schemas, services
+from app import auth, ml, models, schemas, services
 from app.config import settings
-from app.database import get_db
+from app.database import SessionLocal, get_db
 
 app = FastAPI(title=settings.app_name, version="0.1.0")
+PUBLIC_API_PATHS = {
+    f"{settings.api_prefix}/health",
+    f"{settings.api_prefix}/auth/request-otp",
+    f"{settings.api_prefix}/auth/verify",
+}
+
+
+@app.middleware("http")
+async def require_authenticated_session(request: Request, call_next):
+    if (
+        request.method == "OPTIONS"
+        or not request.url.path.startswith(settings.api_prefix)
+        or request.url.path in PUBLIC_API_PATHS
+    ):
+        return await call_next(request)
+
+    token = request.cookies.get(settings.auth_cookie_name)
+    with SessionLocal() as db:
+        user = auth.get_user_by_session(db, token)
+        if user is None:
+            return JSONResponse(status_code=401, content={"detail": "Oturum açmanız gerekiyor"})
+        request.state.user = user
+    return await call_next(request)
+
+
+# CORS is registered after the authentication middleware so even 401 responses
+# receive the required browser headers when the UI runs on another local port.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
@@ -37,6 +65,88 @@ def get_work_order_or_404(work_order_id: uuid.UUID, db: Session) -> models.WorkO
 def health(db: Session = Depends(get_db)) -> dict[str, str]:
     db.execute(text("SELECT 1"))
     return {"status": "ok", "service": settings.app_name}
+
+
+@app.post(
+    f"{settings.api_prefix}/auth/request-otp",
+    response_model=schemas.AuthMessage,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def request_login_otp(
+    payload: schemas.OTPRequest,
+    db: Session = Depends(get_db),
+) -> schemas.AuthMessage:
+    try:
+        auth.request_otp(db, str(payload.email), payload.language)
+    except auth.OTPRateLimitError as exc:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Yeni kod için {exc.retry_after} saniye bekleyin",
+            headers={"Retry-After": str(exc.retry_after)},
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Giriş e-postası gönderilemedi") from exc
+
+    message = (
+        "Login code sent to your email"
+        if payload.language == "en"
+        else "Giriş kodu e-posta adresinize gönderildi"
+    )
+    return schemas.AuthMessage(
+        message=message,
+        mailpit_url=settings.mailpit_public_url,
+    )
+
+
+@app.post(f"{settings.api_prefix}/auth/verify", response_model=schemas.AuthResponse)
+def verify_login_otp(
+    payload: schemas.OTPVerify,
+    response: Response,
+    db: Session = Depends(get_db),
+) -> schemas.AuthResponse:
+    try:
+        user, token = auth.verify_otp(db, str(payload.email), payload.code, payload.language)
+    except auth.OTPInvalidError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+
+    response.set_cookie(
+        key=settings.auth_cookie_name,
+        value=token,
+        max_age=settings.session_expiry_days * 24 * 60 * 60,
+        httponly=True,
+        secure=settings.auth_cookie_secure,
+        samesite="lax",
+        path="/",
+    )
+    return schemas.AuthResponse(user=schemas.AuthUser.model_validate(user))
+
+
+@app.get(f"{settings.api_prefix}/auth/me", response_model=schemas.AuthResponse)
+def current_user(request: Request) -> schemas.AuthResponse:
+    return schemas.AuthResponse(user=schemas.AuthUser.model_validate(request.state.user))
+
+
+@app.post(f"{settings.api_prefix}/auth/logout", status_code=status.HTTP_204_NO_CONTENT)
+def logout(request: Request, response: Response, db: Session = Depends(get_db)) -> Response:
+    auth.delete_session(db, request.cookies.get(settings.auth_cookie_name))
+    response.delete_cookie(settings.auth_cookie_name, path="/")
+    response.status_code = status.HTTP_204_NO_CONTENT
+    return response
+
+
+@app.patch(f"{settings.api_prefix}/auth/preferences", response_model=schemas.AuthResponse)
+def update_user_preferences(
+    payload: schemas.UserPreferencesUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> schemas.AuthResponse:
+    user = db.get(models.User, request.state.user.id)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Oturum geçersiz")
+    user.preferred_language = payload.preferred_language
+    db.commit()
+    db.refresh(user)
+    return schemas.AuthResponse(user=schemas.AuthUser.model_validate(user))
 
 
 @app.post(
