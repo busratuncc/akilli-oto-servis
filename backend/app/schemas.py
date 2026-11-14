@@ -220,6 +220,8 @@ class WorkOrderRead(BaseModel):
     approved_by_mechanic: bool
     voice_transcript: str | None
     created_at: datetime
+    updated_at: datetime
+    completed_at: datetime | None
     dtc_codes: list[DtcCodeRead]
 
 
@@ -539,6 +541,51 @@ class DashboardSummary(BaseModel):
     approved_cases: int
     status_counts: dict[str, int]
     recent_work_orders: list[WorkOrderRead]
+
+
+class AnalyticsMetric(BaseModel):
+    current: float | None
+    previous: float | None
+    change_percent: float | None
+    numerator: int | None = None
+    denominator: int | None = None
+
+
+class AnalyticsSeriesPoint(BaseModel):
+    day: date
+    invoiced: Decimal
+    collected: Decimal
+    completed_orders: int
+
+
+class AnalyticsCategory(BaseModel):
+    key: str
+    count: int
+
+
+class AnalyticsOverview(BaseModel):
+    period_days: int
+    period_start: datetime
+    period_end: datetime
+    previous_start: datetime
+    previous_end: datetime
+    timezone: str
+    generated_at: datetime
+    invoiced: AnalyticsMetric
+    collected: AnalyticsMetric
+    completed_orders: AnalyticsMetric
+    average_turnaround_hours: AnalyticsMetric
+    estimate_approval_rate: AnalyticsMetric
+    appointment_no_show_rate: AnalyticsMetric
+    active_work_orders: int
+    low_stock_parts: int
+    overdue_reminders: int
+    inspection_average_health: float | None
+    unresolved_critical_findings: int
+    series: list[AnalyticsSeriesPoint]
+    work_order_statuses: list[AnalyticsCategory]
+    estimate_funnel: list[AnalyticsCategory]
+    top_services: list[AnalyticsCategory]
 
 
 InvoiceItemType = Literal["part", "labor", "other"]

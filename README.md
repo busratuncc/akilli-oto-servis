@@ -2,7 +2,7 @@
 
 Türkçe servis anlatımlarını yapılandırılmış iş emirlerine dönüştürmek, atölyedeki servis sürecini izlemek, OBD-II kodlarını kaydetmek ve geçmiş vakalar arasında arama yapmak için geliştirilen tez uygulaması.
 
-## Mevcut uygulama (v1.3)
+## Mevcut uygulama (v1.4)
 
 - Atölye özetlerini ve iş emri dağılımını gösteren dashboard
 - Anonim kodla araç kaydı ve araç servis geçmişi
@@ -58,6 +58,11 @@ Türkçe servis anlatımlarını yapılandırılmış iş emirlerine dönüştü
 - Müşterinin hesap açmadan anonim araç koduyla teklif onaylama/reddetme ekranı
 - Eski bağlantıyı yenilemede otomatik geçersiz kılma ve karar değişikliği koruması
 - Yalnızca onaylı teklifi stok yeterliliğini tekrar denetleyerek faturaya dönüştürme
+- 7, 30 ve 90 günlük filtrelerle gelir, tahsilat, tamamlanan iş ve işlem süresi analitiği
+- Eşit uzunluktaki önceki döneme göre yüzdesel performans karşılaştırmaları
+- Teklif onay ve randevuya gelmeme oranlarında açık pay/payda ve eksik veri yönetimi
+- Günlük finans ve tamamlanma grafikleri, iş emri/teklif dağılımı ve servis türü analizi
+- Kritik stok, geciken bakım, açık kontrol bulgusu ve aktif iş yükü için anlık operasyon kartları
 - Masaüstü ve mobil ekranlara uyumlu React arayüzü
 
 ## Başlangıç kapsamı
@@ -94,7 +99,13 @@ Windows için aynı işlemi yapan yardımcı komut:
 5. Sağlık kontrolü: http://localhost:8000/api/health
 6. Geliştirme e-posta kutusu (Mailpit): http://localhost:8026
 
-Uygulama menüsü on bir bölümden oluşur: **Gösterge paneli**, **Araçlar**, **İş emirleri**, **Randevu & bakım**, **Araç kontrolü**, **Teklifler**, **Stok**, **Finans**, **Akıllı asistan**, **AI deneyleri** ve **Hesap ayarları**.
+Uygulama menüsü on iki bölümden oluşur: **Gösterge paneli**, **Araçlar**, **İş emirleri**, **Randevu & bakım**, **Analitik**, **Araç kontrolü**, **Teklifler**, **Stok**, **Finans**, **Akıllı asistan**, **AI deneyleri** ve **Hesap ayarları**.
+
+### Operasyon ve performans analitiği
+
+**Analitik** ekranı 7, 30 veya 90 günlük dönem için faturalandırılan ve tahsil edilen tutarı, tamamlanan iş emri sayısını, ortalama tamamlanma süresini, teklif onay oranını ve randevuya gelmeme oranını hesaplar. Karşılaştırma dönemi mevcut dönemle aynı süre uzunluğuna sahiptir; böylece henüz tamamlanmamış bugün, tam bir önceki günle yanıltıcı biçimde karşılaştırılmaz.
+
+Teklif onay oranı onaylanan veya faturaya dönüşen teklifleri tüm yanıtlanan tekliflere; gelmeme oranı ise gelmedi sonucunu yalnızca tamamlandı/gelmedi sonucu kesinleşmiş randevulara böler. Payda yoksa sistem bunu yüzde sıfır olarak göstermez; “yeterli veri yok” durumunu korur. Finans ve akış grafikleri dönem filtresini izlerken kritik stok, geciken bakım ve açık bulgu kartları mevcut anı gösterir ve bu ayrım ekranda açıkça belirtilir. Tamamlanma zamanı v1.4 ile kaydedilmeye başlandığından, daha eski tamamlanmış iş emirlerine varsayımsal tarih atanmaz; bu kayıtlar genel durum dağılımında kalır ancak dönemsel tamamlanma metriğine girmez.
 
 ### Teklif ve müşteri onayı
 

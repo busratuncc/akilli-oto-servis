@@ -36,6 +36,8 @@ export type WorkOrder = {
   approved_by_mechanic: boolean;
   voice_transcript: string | null;
   created_at: string;
+  updated_at: string;
+  completed_at: string | null;
   dtc_codes: DtcCode[];
 };
 
@@ -83,6 +85,48 @@ export type DashboardSummary = {
   approved_cases: number;
   status_counts: Partial<Record<WorkOrderStatus, number>>;
   recent_work_orders: WorkOrder[];
+};
+
+export type AnalyticsMetric = {
+  current: number | null;
+  previous: number | null;
+  change_percent: number | null;
+  numerator: number | null;
+  denominator: number | null;
+};
+
+export type AnalyticsSeriesPoint = {
+  day: string;
+  invoiced: string;
+  collected: string;
+  completed_orders: number;
+};
+
+export type AnalyticsCategory = { key: string; count: number };
+
+export type AnalyticsOverview = {
+  period_days: number;
+  period_start: string;
+  period_end: string;
+  previous_start: string;
+  previous_end: string;
+  timezone: string;
+  generated_at: string;
+  invoiced: AnalyticsMetric;
+  collected: AnalyticsMetric;
+  completed_orders: AnalyticsMetric;
+  average_turnaround_hours: AnalyticsMetric;
+  estimate_approval_rate: AnalyticsMetric;
+  appointment_no_show_rate: AnalyticsMetric;
+  active_work_orders: number;
+  low_stock_parts: number;
+  overdue_reminders: number;
+  inspection_average_health: number | null;
+  unresolved_critical_findings: number;
+  series: AnalyticsSeriesPoint[];
+  work_order_statuses: AnalyticsCategory[];
+  estimate_funnel: AnalyticsCategory[];
+  top_services: AnalyticsCategory[];
 };
 
 export type AuthUser = {

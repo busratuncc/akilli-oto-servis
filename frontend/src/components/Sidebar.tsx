@@ -12,6 +12,7 @@ import {
   CalendarDays,
   ClipboardCheck,
   FileCheck2,
+  ChartNoAxesCombined,
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { useI18n } from "../i18n";
@@ -21,6 +22,7 @@ const links = [
   { to: "/vehicles", label: "nav.vehicles", icon: CarFront },
   { to: "/work-orders", label: "nav.orders", icon: ClipboardList },
   { to: "/appointments", label: "nav.appointments", icon: CalendarDays },
+  { to: "/analytics", label: "nav.analytics", icon: ChartNoAxesCombined },
   { to: "/inspections", label: "nav.inspections", icon: ClipboardCheck },
   { to: "/estimates", label: "nav.estimates", icon: FileCheck2 },
   { to: "/inventory", label: "nav.inventory", icon: Warehouse },

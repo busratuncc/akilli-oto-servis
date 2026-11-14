@@ -21,6 +21,7 @@ import { useTheme } from "./theme";
 import type { AuthUser, DashboardSummary, Vehicle, WorkOrder } from "./types";
 
 const AppointmentsPage = lazy(() => import("./pages/AppointmentsPage").then((module) => ({ default: module.AppointmentsPage })));
+const AnalyticsPage = lazy(() => import("./pages/AnalyticsPage").then((module) => ({ default: module.AnalyticsPage })));
 const InspectionsPage = lazy(() => import("./pages/InspectionsPage").then((module) => ({ default: module.InspectionsPage })));
 const EstimatesPage = lazy(() => import("./pages/EstimatesPage").then((module) => ({ default: module.EstimatesPage })));
 const EstimateApprovalPage = lazy(() => import("./pages/EstimateApprovalPage").then((module) => ({ default: module.EstimateApprovalPage })));
@@ -30,6 +31,7 @@ const PAGE_TITLE_KEYS: Record<string, string> = {
   "/vehicles": "nav.vehicles",
   "/work-orders": "nav.orders",
   "/appointments": "nav.appointments",
+  "/analytics": "nav.analytics",
   "/inspections": "nav.inspections",
   "/estimates": "nav.estimates",
   "/inventory": "nav.inventory",
@@ -187,6 +189,7 @@ function App() {
             <Route path="/vehicles" element={<VehiclesPage vehicles={vehicles} orders={orders} onChanged={refresh} notify={setNotice} reportError={setError} />} />
             <Route path="/work-orders" element={<WorkOrdersPage vehicles={vehicles} orders={orders} initialDraft={intakeDraft} onDraftConsumed={consumeDraft} onChanged={refresh} notify={setNotice} reportError={setError} />} />
             <Route path="/appointments" element={<AppointmentsPage vehicles={vehicles} notify={setNotice} reportError={setError} />} />
+            <Route path="/analytics" element={<AnalyticsPage reportError={setError} />} />
             <Route path="/inspections" element={<InspectionsPage vehicles={vehicles} orders={orders} onChanged={refresh} notify={setNotice} reportError={setError} />} />
             <Route path="/estimates" element={<EstimatesPage vehicles={vehicles} orders={orders} notify={setNotice} reportError={setError} />} />
             <Route path="/inventory" element={<InventoryPage notify={setNotice} reportError={setError} />} />

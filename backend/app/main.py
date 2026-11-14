@@ -3,7 +3,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile, status
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import func, select, text
@@ -11,7 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 from starlette.concurrency import run_in_threadpool
 
-from app import auth, estimate, evaluation, finance, inspection, inventory, ml, models, schemas, scheduling, services, test_bank
+from app import analytics, auth, estimate, evaluation, finance, inspection, inventory, ml, models, schemas, scheduling, services, test_bank
 from app.config import settings
 from app.database import SessionLocal, get_db
 
@@ -856,6 +856,8 @@ def create_work_order(
     services.refresh_work_order_embedding(work_order)
     db.add(work_order)
     db.flush()
+    if payload.status == "completed":
+        work_order.completed_at = work_order.created_at
     auth.add_audit_event(
         db,
         request.state.user.id,
@@ -920,8 +922,14 @@ def update_work_order(
     if update_data.get("status", "not-set") is None:
         raise HTTPException(status_code=422, detail="İş emri durumu boş bırakılamaz")
 
+    previous_status = work_order.status
     for field, value in update_data.items():
         setattr(work_order, field, value)
+
+    if work_order.status == "completed" and previous_status != "completed":
+        work_order.completed_at = datetime.now(timezone.utc)
+    elif work_order.status != "completed" and previous_status == "completed":
+        work_order.completed_at = None
 
     if payload.dtc_codes is not None:
         work_order.dtc_codes = [
@@ -1565,6 +1573,15 @@ def dashboard_summary(request: Request, db: Session = Depends(get_db)) -> schema
         status_counts=status_counts,
         recent_work_orders=[schemas.WorkOrderRead.model_validate(item) for item in recent_work_orders],
     )
+
+
+@app.get(f"{settings.api_prefix}/analytics/overview", response_model=schemas.AnalyticsOverview)
+def analytics_overview(
+    request: Request,
+    days: int = Query(default=30, ge=7, le=90),
+    db: Session = Depends(get_db),
+) -> schemas.AnalyticsOverview:
+    return analytics.build_overview(db, request.state.user.id, days)
 
 
 @app.post(f"{settings.api_prefix}/ai/extract-preview", response_model=schemas.ExtractionPreview)

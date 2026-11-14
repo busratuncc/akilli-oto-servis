@@ -2,6 +2,7 @@ import type {
   CaseSearchResult,
   AIRuntimeStatus,
   DashboardSummary,
+  AnalyticsOverview,
   ExtractionPreview,
   Vehicle,
   WorkOrder,
@@ -99,6 +100,8 @@ export const api = {
   accountActivity: () => request<AuditEvent[]>("/auth/activity"),
   health: () => request<{ status: string; service: string }>("/health"),
   dashboard: () => request<DashboardSummary>("/dashboard/summary"),
+  analyticsOverview: (days: 7 | 30 | 90) =>
+    request<AnalyticsOverview>(`/analytics/overview?days=${days}`),
   listVehicles: () => request<Vehicle[]>("/vehicles"),
   createVehicle: (payload: Record<string, unknown>) =>
     request<Vehicle>("/vehicles", { method: "POST", body: JSON.stringify(payload) }),
