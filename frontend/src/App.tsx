@@ -9,7 +9,9 @@ import { AssistantPage } from "./pages/AssistantPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { LoginPage } from "./pages/LoginPage";
 import { FinancePage } from "./pages/FinancePage";
+import { CardPaymentPage } from "./pages/CardPaymentPage";
 import { InventoryPage } from "./pages/InventoryPage";
+import { TestBank3DPage } from "./pages/TestBank3DPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import type { IntakeDraft } from "./pages/WorkOrdersPage";
 import { WorkOrdersPage } from "./pages/WorkOrdersPage";
@@ -140,6 +142,10 @@ function App() {
     return <LoginPage onAuthenticated={(authenticatedUser) => { setUser(authenticatedUser); setLanguage(authenticatedUser.preferred_language); }} />;
   }
 
+  if (location.pathname === "/test-bank/3d") {
+    return <TestBank3DPage />;
+  }
+
   return (
     <div className="app-shell">
       <Sidebar />
@@ -168,6 +174,7 @@ function App() {
             <Route path="/work-orders" element={<WorkOrdersPage vehicles={vehicles} orders={orders} initialDraft={intakeDraft} onDraftConsumed={consumeDraft} onChanged={refresh} notify={setNotice} reportError={setError} />} />
             <Route path="/inventory" element={<InventoryPage notify={setNotice} reportError={setError} />} />
             <Route path="/finance" element={<FinancePage vehicles={vehicles} orders={orders} notify={setNotice} reportError={setError} />} />
+            <Route path="/finance/card-payment/:invoiceId" element={<CardPaymentPage reportError={setError} />} />
             <Route path="/assistant" element={<AssistantPage onUseDraft={useAssistantDraft} notify={setNotice} reportError={setError} />} />
             <Route path="/settings" element={<SettingsPage user={user} onUserUpdated={setUser} notify={setNotice} reportError={setError} />} />
             <Route path="*" element={<Navigate to="/" replace />} />

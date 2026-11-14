@@ -18,6 +18,9 @@ import type {
   InventoryPart,
   InventorySummary,
   StockMovement,
+  CardPaymentStartResult,
+  CardChallenge,
+  CardChallengeVerifyResult,
 } from "./types";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000/api";
@@ -94,6 +97,7 @@ export const api = {
       body: JSON.stringify(payload),
     }),
   listInvoices: () => request<Invoice[]>("/invoices"),
+  getInvoice: (id: string) => request<Invoice>(`/invoices/${id}`),
   financeSummary: () => request<FinanceSummary>("/finance/summary"),
   createInvoice: (workOrderId: string, payload: InvoiceCreatePayload) =>
     request<Invoice>(`/work-orders/${workOrderId}/invoice`, {
@@ -104,6 +108,21 @@ export const api = {
     request<Invoice>(`/invoices/${invoiceId}/payments`, {
       method: "POST",
       body: JSON.stringify(payload),
+    }),
+  startTestCardPayment: (invoiceId: string, amount: string, cardLast4: string) =>
+    request<CardPaymentStartResult>(`/invoices/${invoiceId}/card-payment/start`, {
+      method: "POST",
+      body: JSON.stringify({ amount, card_last4: cardLast4 }),
+    }),
+  testCardChallengeDetails: (challengeId: string, token: string) =>
+    request<CardChallenge>(`/card-payment/challenges/${challengeId}/details`, {
+      method: "POST",
+      body: JSON.stringify({ token }),
+    }),
+  verifyTestCardChallenge: (challengeId: string, token: string, code: string) =>
+    request<CardChallengeVerifyResult>(`/card-payment/challenges/${challengeId}/verify`, {
+      method: "POST",
+      body: JSON.stringify({ token, code }),
     }),
   listInventoryParts: () => request<InventoryPart[]>("/inventory/parts"),
   inventorySummary: () => request<InventorySummary>("/inventory/summary"),

@@ -2,7 +2,7 @@
 
 Türkçe servis anlatımlarını yapılandırılmış iş emirlerine dönüştürmek, atölyedeki servis sürecini izlemek, OBD-II kodlarını kaydetmek ve geçmiş vakalar arasında arama yapmak için geliştirilen tez uygulaması.
 
-## Mevcut uygulama (v0.8)
+## Mevcut uygulama (v0.9)
 
 - Atölye özetlerini ve iş emri dağılımını gösteren dashboard
 - Anonim kodla araç kaydı ve araç servis geçmişi
@@ -30,6 +30,9 @@ Türkçe servis anlatımlarını yapılandırılmış iş emirlerine dönüştü
 - Faturalanan, tahsil edilen, bekleyen ve vadesi geçen tutar özeti
 - Fazla ödemeyi engelleyen bakiye kontrolü ve eşzamanlı tahsilat kilidi
 - Fatura ve ödeme hareketleri için hesap bazlı veri izolasyonu ve denetim kaydı
+- Test kartı formu, rastgele temalı yerel test bankası ve 3D Secure doğrulama akışı
+- `123456` başarılı kodu, hatalı kod/deneme sınırı, süre aşımı ve çift tahsilat koruması
+- Tam kart numarası, son kullanma tarihi ve CVV'yi backend'e göndermeyen güvenli demo mimarisi
 - Hesaba özel parça kartları, stok kodu, kategori, marka, birim ve fiyat yönetimi
 - Manuel stok giriş/çıkışı, hareket geçmişi ve kritik stok uyarıları
 - Stok maliyet değeri, stokta olmayan ve kritik seviyedeki parça özetleri
@@ -81,7 +84,21 @@ Her parça hesap içinde benzersiz bir stok koduna sahiptir. Başlangıç miktar
 
 Finans ekranında bir iş emri için parça, işçilik ve diğer maliyet kalemleri eklenir. Ara toplam, indirim, KDV ve genel toplam sunucuda yeniden hesaplanır. Bir faturaya birden fazla kısmi ödeme girilebilir; bakiye sıfıra ulaştığında fatura otomatik olarak ödendi durumuna geçer. Kalan bakiyeyi aşan ödeme kabul edilmez.
 
-`Kart / harici POS` yöntemi gerçek kart çekimi yapmaz; yalnızca ayrı bir POS cihazında alınmış ödemenin muhasebe kaydını tutar. Uygulama kart numarası, son kullanma tarihi, CVV veya PIN istemez ve saklamaz. Gerçek ödeme sağlayıcısı eklendiğinde sağlayıcının barındırdığı ödeme sayfası kullanılmalıdır. Bu modüldeki kayıtlar tez prototipinin operasyonel finans takibidir; resmi e-Fatura/e-Arşiv entegrasyonu değildir.
+`Kart / harici POS` yöntemi gerçek kart çekimi yapmaz; yalnızca ayrı bir POS cihazında alınmış ödemenin muhasebe kaydını tutar. `3D Secure test kartıyla öde` seçeneği ise eğitim amaçlı kart formunu ve yerel test bankası ekranını açar.
+
+### Test kartı ve 3D Secure simülasyonu
+
+- Test kartı: `4242 4242 4242 4242`
+- Son kullanma tarihi: `12/30`
+- CVV: `123`
+- Başarılı 3D Secure kodu: `123456`
+- Diğer 6 haneli kodlar: hatalı
+- İşlem süresi: varsayılan 5 dakika
+- Hatalı kod sınırı: varsayılan 3 deneme
+
+Kart numarası, son kullanma tarihi ve CVV yalnızca React sayfasının geçici belleğinde doğrulanır; API'ye yalnızca tutar ve test kartının son dört hanesi gönderilir. 3D bağlantı anahtarının kendisi yerine SHA-256 hash'i veritabanında saklanır. Başarılı doğrulama ödemeyi faturaya yalnızca bir kez ekler; tekrar gönderilen aynı başarılı istek çift tahsilat oluşturmaz.
+
+Bu özellik gerçek banka/ödeme kuruluşu entegrasyonu değildir. Üretimde gerçek kart alanları uygulamanın kendi backend'inden geçirilmemeli; PCI uyumlu bir ödeme sağlayıcısının barındırdığı form veya tokenizasyon çözümü kullanılmalıdır. Finans kayıtları resmi e-Fatura/e-Arşiv yerine geçmez.
 
 ### Kayıt ve yerel kodla giriş
 

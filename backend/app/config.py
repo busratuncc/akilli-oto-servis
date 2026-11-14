@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     otp_request_interval_seconds: int = 60
     otp_max_attempts: int = 5
     session_expiry_days: int = 7
+    test_3d_secure_code: str = Field(default="123456", pattern=r"^\d{6}$")
+    test_3d_expiry_minutes: int = 5
+    test_3d_max_attempts: int = 3
     smtp_host: str = "mailpit"
     smtp_port: int = 1025
     smtp_username: str | None = None

@@ -38,6 +38,9 @@ const EVENT_LABEL_KEYS: Record<string, string> = {
   "inventory.part_created": "settings.eventPartCreated",
   "inventory.part_updated": "settings.eventPartUpdated",
   "inventory.stock_moved": "settings.eventStockMoved",
+  "card_payment.challenge_started": "settings.eventCardChallengeStarted",
+  "card_payment.challenge_failed": "settings.eventCardChallengeFailed",
+  "card_payment.succeeded": "settings.eventCardPaymentSucceeded",
 };
 
 export function SettingsPage({ user, onUserUpdated, notify, reportError }: Props) {

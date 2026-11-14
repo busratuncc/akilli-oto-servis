@@ -1,5 +1,5 @@
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 
@@ -11,7 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 from starlette.concurrency import run_in_threadpool
 
-from app import auth, finance, inventory, ml, models, schemas, services
+from app import auth, finance, inventory, ml, models, schemas, services, test_bank
 from app.config import settings
 from app.database import SessionLocal, get_db
 
@@ -115,6 +115,30 @@ def get_inventory_part_or_404(
     if part is None:
         raise HTTPException(status_code=404, detail="Stok parçası bulunamadı")
     return part
+
+
+def get_card_challenge_or_404(
+    challenge_id: uuid.UUID,
+    token: str,
+    user_id: uuid.UUID,
+    db: Session,
+    *,
+    lock_for_update: bool = False,
+) -> models.CardPaymentChallenge:
+    query = (
+        select(models.CardPaymentChallenge)
+        .options(selectinload(models.CardPaymentChallenge.invoice))
+        .where(
+            models.CardPaymentChallenge.id == challenge_id,
+            models.CardPaymentChallenge.owner_id == user_id,
+        )
+    )
+    if lock_for_update:
+        query = query.with_for_update()
+    challenge = db.scalar(query)
+    if challenge is None or not test_bank.token_matches(token, challenge.token_hash):
+        raise HTTPException(status_code=404, detail="3D Secure işlemi bulunamadı")
+    return challenge
 
 
 @app.get(f"{settings.api_prefix}/health")
@@ -893,6 +917,220 @@ def record_payment(
     )
     db.commit()
     return finance.to_read(get_invoice_or_404(invoice.id, request.state.user.id, db))
+
+
+@app.post(
+    f"{settings.api_prefix}/invoices/{{invoice_id}}/card-payment/start",
+    response_model=schemas.CardPaymentStartResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def start_test_card_payment(
+    invoice_id: uuid.UUID,
+    payload: schemas.CardPaymentStart,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> schemas.CardPaymentStartResponse:
+    invoice = get_invoice_or_404(
+        invoice_id,
+        request.state.user.id,
+        db,
+        lock_for_update=True,
+    )
+    if invoice.status == "cancelled":
+        raise HTTPException(status_code=409, detail="İptal edilmiş fatura ödenemez")
+    amount = finance.money(payload.amount)
+    remaining = finance.balance_due(invoice)
+    if amount > remaining:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Kart ödemesi kalan {remaining} TRY tutarını aşamaz",
+        )
+
+    raw_token, hashed_token = test_bank.create_token()
+    challenge = models.CardPaymentChallenge(
+        owner_id=request.state.user.id,
+        invoice_id=invoice.id,
+        token_hash=hashed_token,
+        amount=amount,
+        card_last4=payload.card_last4,
+        expires_at=datetime.now(timezone.utc)
+        + timedelta(minutes=settings.test_3d_expiry_minutes),
+    )
+    db.add(challenge)
+    db.flush()
+    auth.add_audit_event(
+        db,
+        request.state.user.id,
+        "card_payment.challenge_started",
+        entity_type="card_payment_challenge",
+        entity_id=challenge.id,
+        event_data={
+            "invoice_number": invoice.invoice_number,
+            "amount": str(amount),
+            "card_last4": payload.card_last4,
+        },
+    )
+    db.commit()
+    db.refresh(challenge)
+    return schemas.CardPaymentStartResponse(
+        challenge_id=challenge.id,
+        redirect_url=(
+            f"/test-bank/3d?challenge_id={challenge.id}#token={raw_token}"
+        ),
+        expires_at=challenge.expires_at,
+    )
+
+
+@app.post(
+    f"{settings.api_prefix}/card-payment/challenges/{{challenge_id}}/details",
+    response_model=schemas.CardChallengeRead,
+)
+def test_card_challenge_details(
+    challenge_id: uuid.UUID,
+    payload: schemas.CardChallengeAccess,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> schemas.CardChallengeRead:
+    challenge = get_card_challenge_or_404(
+        challenge_id,
+        payload.token,
+        request.state.user.id,
+        db,
+    )
+    if challenge.status == "pending" and test_bank.is_expired(challenge.expires_at):
+        challenge.status = "expired"
+        db.commit()
+    return schemas.CardChallengeRead(
+        challenge_id=challenge.id,
+        invoice_id=challenge.invoice_id,
+        invoice_number=challenge.invoice.invoice_number,
+        amount=challenge.amount,
+        currency=challenge.invoice.currency,
+        card_last4=challenge.card_last4,
+        status=challenge.status,
+        expires_at=challenge.expires_at,
+        attempts_remaining=max(settings.test_3d_max_attempts - challenge.attempts, 0),
+    )
+
+
+@app.post(
+    f"{settings.api_prefix}/card-payment/challenges/{{challenge_id}}/verify",
+    response_model=schemas.CardChallengeVerifyResponse,
+)
+def verify_test_card_challenge(
+    challenge_id: uuid.UUID,
+    payload: schemas.CardChallengeVerify,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> schemas.CardChallengeVerifyResponse:
+    challenge = get_card_challenge_or_404(
+        challenge_id,
+        payload.token,
+        request.state.user.id,
+        db,
+        lock_for_update=True,
+    )
+    attempts_remaining = max(settings.test_3d_max_attempts - challenge.attempts, 0)
+    if challenge.status == "succeeded":
+        return schemas.CardChallengeVerifyResponse(
+            status="succeeded",
+            message="Ödeme daha önce başarıyla tamamlandı",
+            attempts_remaining=attempts_remaining,
+            redirect_url=f"/finance?payment=success&invoice={challenge.invoice_id}",
+        )
+    if challenge.status in {"failed", "expired"}:
+        return schemas.CardChallengeVerifyResponse(
+            status=challenge.status,
+            message=(
+                "3D Secure işleminin süresi doldu"
+                if challenge.status == "expired"
+                else "3D Secure işlemi başarısız oldu"
+            ),
+            attempts_remaining=attempts_remaining,
+        )
+    if test_bank.is_expired(challenge.expires_at):
+        challenge.status = "expired"
+        db.commit()
+        return schemas.CardChallengeVerifyResponse(
+            status="expired",
+            message="3D Secure işleminin süresi doldu",
+            attempts_remaining=0,
+        )
+
+    if payload.code != settings.test_3d_secure_code:
+        challenge.attempts += 1
+        attempts_remaining = max(settings.test_3d_max_attempts - challenge.attempts, 0)
+        if attempts_remaining == 0:
+            challenge.status = "failed"
+            auth.add_audit_event(
+                db,
+                request.state.user.id,
+                "card_payment.challenge_failed",
+                entity_type="card_payment_challenge",
+                entity_id=challenge.id,
+                event_data={"invoice_number": challenge.invoice.invoice_number},
+            )
+        db.commit()
+        return schemas.CardChallengeVerifyResponse(
+            status=challenge.status,
+            message=(
+                "Doğrulama kodu hatalı; işlem başarısız oldu"
+                if challenge.status == "failed"
+                else "Doğrulama kodu hatalı"
+            ),
+            attempts_remaining=attempts_remaining,
+        )
+
+    invoice = get_invoice_or_404(
+        challenge.invoice_id,
+        request.state.user.id,
+        db,
+        lock_for_update=True,
+    )
+    remaining = finance.balance_due(invoice)
+    if challenge.amount > remaining:
+        challenge.status = "failed"
+        db.commit()
+        return schemas.CardChallengeVerifyResponse(
+            status="failed",
+            message="Fatura bakiyesi değiştiği için ödeme tamamlanamadı",
+            attempts_remaining=attempts_remaining,
+        )
+
+    payment = models.Payment(
+        invoice_id=invoice.id,
+        created_by_id=request.state.user.id,
+        amount=challenge.amount,
+        method="test_card",
+        reference=f"3DS-{challenge.id.hex[:10].upper()}",
+        notes="Yerel test bankası 3D Secure simülasyonu",
+    )
+    invoice.payments.append(payment)
+    finance.update_status(invoice)
+    challenge.status = "succeeded"
+    challenge.completed_at = datetime.now(timezone.utc)
+    db.add(payment)
+    db.flush()
+    auth.add_audit_event(
+        db,
+        request.state.user.id,
+        "card_payment.succeeded",
+        entity_type="payment",
+        entity_id=payment.id,
+        event_data={
+            "invoice_number": invoice.invoice_number,
+            "amount": str(challenge.amount),
+            "method": "test_card",
+            "card_last4": challenge.card_last4,
+        },
+    )
+    db.commit()
+    return schemas.CardChallengeVerifyResponse(
+        status="succeeded",
+        message="Test kart ödemesi başarıyla tamamlandı",
+        attempts_remaining=attempts_remaining,
+        redirect_url=f"/finance?payment=success&invoice={invoice.id}",
+    )
 
 
 @app.get(f"{settings.api_prefix}/finance/summary", response_model=schemas.FinanceSummary)

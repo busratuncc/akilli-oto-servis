@@ -270,7 +270,7 @@ class DashboardSummary(BaseModel):
 
 InvoiceItemType = Literal["part", "labor", "other"]
 InvoiceStatus = Literal["issued", "partially_paid", "paid", "cancelled"]
-PaymentMethod = Literal["cash", "card_pos", "bank_transfer", "other"]
+PaymentMethod = Literal["cash", "card_pos", "test_card", "bank_transfer", "other"]
 
 
 class InvoiceLineCreate(BaseModel):
@@ -348,6 +348,47 @@ class FinanceSummary(BaseModel):
     paid_invoices: int
     partially_paid_invoices: int
     overdue_invoices: int
+
+
+CardChallengeStatus = Literal["pending", "succeeded", "failed", "expired"]
+
+
+class CardPaymentStart(BaseModel):
+    amount: Decimal = Field(gt=0, le=100_000_000, decimal_places=2)
+    card_last4: str = Field(pattern=r"^\d{4}$")
+
+
+class CardPaymentStartResponse(BaseModel):
+    challenge_id: uuid.UUID
+    redirect_url: str
+    expires_at: datetime
+
+
+class CardChallengeAccess(BaseModel):
+    token: str = Field(min_length=40, max_length=200)
+
+
+class CardChallengeVerify(CardChallengeAccess):
+    code: str = Field(pattern=r"^\d{6}$")
+
+
+class CardChallengeRead(BaseModel):
+    challenge_id: uuid.UUID
+    invoice_id: uuid.UUID
+    invoice_number: str
+    amount: Decimal
+    currency: str
+    card_last4: str
+    status: CardChallengeStatus
+    expires_at: datetime
+    attempts_remaining: int
+
+
+class CardChallengeVerifyResponse(BaseModel):
+    status: CardChallengeStatus
+    message: str
+    attempts_remaining: int
+    redirect_url: str | None = None
 
 
 StockMovementType = Literal["initial", "stock_in", "stock_out", "invoice_sale"]

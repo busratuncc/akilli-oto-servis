@@ -142,7 +142,7 @@ export type AuthMessage = {
 
 export type InvoiceItemType = "part" | "labor" | "other";
 export type InvoiceStatus = "issued" | "partially_paid" | "paid" | "cancelled";
-export type PaymentMethod = "cash" | "card_pos" | "bank_transfer" | "other";
+export type PaymentMethod = "cash" | "card_pos" | "test_card" | "bank_transfer" | "other";
 
 export type InvoiceLine = {
   id: string;
@@ -252,5 +252,32 @@ export type InventorySummary = {
   out_of_stock_parts: number;
   inventory_cost_value: string;
   inventory_sale_value: string;
+};
+
+export type CardPaymentStartResult = {
+  challenge_id: string;
+  redirect_url: string;
+  expires_at: string;
+};
+
+export type CardChallengeStatus = "pending" | "succeeded" | "failed" | "expired";
+
+export type CardChallenge = {
+  challenge_id: string;
+  invoice_id: string;
+  invoice_number: string;
+  amount: string;
+  currency: string;
+  card_last4: string;
+  status: CardChallengeStatus;
+  expires_at: string;
+  attempts_remaining: number;
+};
+
+export type CardChallengeVerifyResult = {
+  status: CardChallengeStatus;
+  message: string;
+  attempts_remaining: number;
+  redirect_url: string | null;
 };
 

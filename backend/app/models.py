@@ -172,6 +172,9 @@ class Invoice(Base):
     payments: Mapped[list["Payment"]] = relationship(
         back_populates="invoice", cascade="all, delete-orphan"
     )
+    card_challenges: Mapped[list["CardPaymentChallenge"]] = relationship(
+        back_populates="invoice", cascade="all, delete-orphan"
+    )
 
 
 class InvoiceLineItem(Base):
@@ -213,6 +216,28 @@ class Payment(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     invoice: Mapped[Invoice] = relationship(back_populates="payments")
+
+
+class CardPaymentChallenge(Base):
+    __tablename__ = "card_payment_challenges"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    owner_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    invoice_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("invoices.id", ondelete="CASCADE"), index=True
+    )
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+    card_last4: Mapped[str] = mapped_column(String(4))
+    status: Mapped[str] = mapped_column(String(24), default="pending", index=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    invoice: Mapped[Invoice] = relationship(back_populates="card_challenges")
 
 
 class InventoryPart(Base):

@@ -9,6 +9,7 @@ import {
   Trash2,
   WalletCards,
 } from "lucide-react";
+import { useLocation, useNavigate } from "react-router-dom";
 
 import { api } from "../api";
 import { useI18n } from "../i18n";
@@ -48,6 +49,8 @@ const emptyLine = (): DraftLine => ({
 
 export function FinancePage({ vehicles, orders, notify, reportError }: Props) {
   const { language, t } = useI18n();
+  const location = useLocation();
+  const navigate = useNavigate();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [inventoryParts, setInventoryParts] = useState<InventoryPart[]>([]);
   const [summary, setSummary] = useState<FinanceSummary | null>(null);
@@ -94,6 +97,14 @@ export function FinancePage({ vehicles, orders, notify, reportError }: Props) {
   useEffect(() => {
     void loadFinance();
   }, [loadFinance]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (params.get("payment") !== "success") return;
+    notify(t("card.paymentSuccess"));
+    void loadFinance();
+    navigate("/finance", { replace: true });
+  }, [loadFinance, location.search, navigate, notify, t]);
 
   const vehicleMap = useMemo(
     () => new Map(vehicles.map((vehicle) => [vehicle.id, vehicle])),
@@ -304,6 +315,8 @@ export function FinancePage({ vehicles, orders, notify, reportError }: Props) {
               <div className="invoice-totals"><span>{t("finance.subtotal")}<strong>{formatCurrency(selected.subtotal, language)}</strong></span><span>{t("finance.discount")}<strong>-{formatCurrency(selected.discount_amount, language)}</strong></span><span>{t("finance.tax")} ({selected.tax_rate}%)<strong>{formatCurrency(selected.tax_amount, language)}</strong></span></div>
 
               {Number(selected.balance_due) > 0 && (
+                <>
+                <div className="test-card-cta"><span className="settings-card-icon"><CreditCard size={20} /></span><span><strong>{t("card.testBankPay")}</strong><small>{t("card.testBankPayHelp")}</small></span><button className="secondary-button" onClick={() => navigate(`/finance/card-payment/${selected.id}`)}>{t("card.openForm")}</button></div>
                 <form className="payment-form" onSubmit={submitPayment}>
                   <div className="panel-heading"><div><span className="section-kicker">{t("finance.payment")}</span><h3>{t("finance.recordPayment")}</h3></div></div>
                   <label>{t("finance.amount")}<div className="amount-fill"><input required type="number" min="0.01" max={selected.balance_due} step="0.01" value={payment.amount} onChange={(event) => setPayment({ ...payment, amount: event.target.value })} /><button type="button" onClick={() => setPayment({ ...payment, amount: selected.balance_due })}>{t("finance.fillBalance")}</button></div></label>
@@ -313,6 +326,7 @@ export function FinancePage({ vehicles, orders, notify, reportError }: Props) {
                   <label>{t("finance.notes")}<textarea rows={2} value={payment.notes} onChange={(event) => setPayment({ ...payment, notes: event.target.value })} /></label>
                   <button className="primary-button full-button" disabled={recording}>{recording ? t("common.saving") : t("finance.savePayment")}</button>
                 </form>
+                </>
               )}
 
               <div className="payment-history"><strong>{t("finance.paymentHistory")}</strong>{selected.payments.length === 0 ? <small>{t("finance.noPayments")}</small> : selected.payments.map((item) => <div key={item.id}><span><Banknote size={16} /><span><strong>{t(`finance.method.${item.method}`)}</strong><small>{formatDate(item.received_at, language)}{item.reference ? ` · ${item.reference}` : ""}</small></span></span><strong>{formatCurrency(item.amount, language)}</strong></div>)}</div>
