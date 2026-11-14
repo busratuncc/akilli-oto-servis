@@ -281,3 +281,63 @@ export type CardChallengeVerifyResult = {
   redirect_url: string | null;
 };
 
+export type EvaluationMode = "keyword" | "semantic" | "hybrid";
+
+export type EvaluationQuery = {
+  id: string;
+  name: string;
+  query_text: string;
+  dtc_code: string | null;
+  expected_work_order_id: string;
+  notes: string | null;
+  created_at: string;
+};
+
+export type EvaluationModeMetrics = {
+  mode: EvaluationMode;
+  hit_rate: number;
+  mrr: number;
+  avg_latency_ms: number;
+  hits: number;
+  query_count: number;
+};
+
+export type EvaluationDetail = {
+  query_id: string;
+  query_name: string;
+  expected_work_order_id: string;
+  mode: EvaluationMode;
+  rank: number | null;
+  reciprocal_rank: number;
+  latency_ms: number;
+  result_work_order_ids: string[];
+};
+
+export type EvaluationRun = {
+  id: string;
+  modes: EvaluationMode[];
+  top_k: number;
+  query_count: number;
+  metrics: EvaluationModeMetrics[];
+  details: EvaluationDetail[];
+  best_mode: EvaluationMode | null;
+  created_at: string;
+};
+
+export type EvaluationSummary = {
+  query_count: number;
+  run_count: number;
+  best_mode: EvaluationMode | null;
+  best_hit_rate: number;
+  latest_run_at: string | null;
+};
+
+export type EvidenceResponse = {
+  summary: string;
+  confidence: "insufficient" | "low" | "medium" | "high";
+  confidence_score: number;
+  suggested_checks: string[];
+  limitations: string[];
+  evidence: CaseSearchResult[];
+};
+

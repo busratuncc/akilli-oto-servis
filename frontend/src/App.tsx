@@ -12,6 +12,7 @@ import { FinancePage } from "./pages/FinancePage";
 import { CardPaymentPage } from "./pages/CardPaymentPage";
 import { InventoryPage } from "./pages/InventoryPage";
 import { TestBank3DPage } from "./pages/TestBank3DPage";
+import { EvaluationPage } from "./pages/EvaluationPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import type { IntakeDraft } from "./pages/WorkOrdersPage";
 import { WorkOrdersPage } from "./pages/WorkOrdersPage";
@@ -26,6 +27,7 @@ const PAGE_TITLE_KEYS: Record<string, string> = {
   "/inventory": "nav.inventory",
   "/finance": "nav.finance",
   "/assistant": "nav.assistant",
+  "/evaluation": "nav.evaluation",
   "/settings": "nav.settings",
 };
 
@@ -176,6 +178,7 @@ function App() {
             <Route path="/finance" element={<FinancePage vehicles={vehicles} orders={orders} notify={setNotice} reportError={setError} />} />
             <Route path="/finance/card-payment/:invoiceId" element={<CardPaymentPage reportError={setError} />} />
             <Route path="/assistant" element={<AssistantPage onUseDraft={useAssistantDraft} notify={setNotice} reportError={setError} />} />
+            <Route path="/evaluation" element={<EvaluationPage vehicles={vehicles} orders={orders} notify={setNotice} reportError={setError} />} />
             <Route path="/settings" element={<SettingsPage user={user} onUserUpdated={setUser} notify={setNotice} reportError={setError} />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

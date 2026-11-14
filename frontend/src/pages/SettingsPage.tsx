@@ -41,6 +41,9 @@ const EVENT_LABEL_KEYS: Record<string, string> = {
   "card_payment.challenge_started": "settings.eventCardChallengeStarted",
   "card_payment.challenge_failed": "settings.eventCardChallengeFailed",
   "card_payment.succeeded": "settings.eventCardPaymentSucceeded",
+  "evaluation.query_created": "settings.eventEvaluationQueryCreated",
+  "evaluation.query_deleted": "settings.eventEvaluationQueryDeleted",
+  "evaluation.run_completed": "settings.eventEvaluationRunCompleted",
 };
 
 export function SettingsPage({ user, onUserUpdated, notify, reportError }: Props) {

@@ -11,7 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 from starlette.concurrency import run_in_threadpool
 
-from app import auth, finance, inventory, ml, models, schemas, services, test_bank
+from app import auth, evaluation, finance, inventory, ml, models, schemas, services, test_bank
 from app.config import settings
 from app.database import SessionLocal, get_db
 
@@ -139,6 +139,19 @@ def get_card_challenge_or_404(
     if challenge is None or not test_bank.token_matches(token, challenge.token_hash):
         raise HTTPException(status_code=404, detail="3D Secure işlemi bulunamadı")
     return challenge
+
+
+def evaluation_run_to_read(run: models.EvaluationRun) -> schemas.EvaluationRunRead:
+    return schemas.EvaluationRunRead(
+        id=run.id,
+        modes=run.modes,
+        top_k=run.top_k,
+        query_count=run.query_count,
+        metrics=[schemas.EvaluationModeMetrics.model_validate(item) for item in run.metrics_json],
+        details=[schemas.EvaluationDetail.model_validate(item) for item in run.details_json],
+        best_mode=run.best_mode,
+        created_at=run.created_at,
+    )
 
 
 @app.get(f"{settings.api_prefix}/health")
@@ -1287,6 +1300,238 @@ async def transcribe_audio(
         await audio.close()
         if not retain_audio:
             target.unlink(missing_ok=True)
+
+
+@app.post(
+    f"{settings.api_prefix}/evaluation/queries",
+    response_model=schemas.EvaluationQueryRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_evaluation_query(
+    payload: schemas.EvaluationQueryCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> models.EvaluationQuery:
+    expected_order = get_work_order_or_404(
+        payload.expected_work_order_id,
+        request.state.user.id,
+        db,
+    )
+    if not expected_order.approved_by_mechanic:
+        raise HTTPException(
+            status_code=409,
+            detail="Değerlendirme hedefi usta tarafından onaylanmış bir vaka olmalıdır",
+        )
+    evaluation_query = models.EvaluationQuery(
+        owner_id=request.state.user.id,
+        **payload.model_dump(),
+    )
+    db.add(evaluation_query)
+    db.flush()
+    auth.add_audit_event(
+        db,
+        request.state.user.id,
+        "evaluation.query_created",
+        entity_type="evaluation_query",
+        entity_id=evaluation_query.id,
+        event_data={"expected_work_order_id": str(payload.expected_work_order_id)},
+    )
+    db.commit()
+    db.refresh(evaluation_query)
+    return evaluation_query
+
+
+@app.get(
+    f"{settings.api_prefix}/evaluation/queries",
+    response_model=list[schemas.EvaluationQueryRead],
+)
+def list_evaluation_queries(
+    request: Request,
+    db: Session = Depends(get_db),
+) -> list[models.EvaluationQuery]:
+    return list(
+        db.scalars(
+            select(models.EvaluationQuery)
+            .where(models.EvaluationQuery.owner_id == request.state.user.id)
+            .order_by(models.EvaluationQuery.created_at.desc())
+        ).all()
+    )
+
+
+@app.delete(
+    f"{settings.api_prefix}/evaluation/queries/{{query_id}}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_evaluation_query(
+    query_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> Response:
+    evaluation_query = db.scalar(
+        select(models.EvaluationQuery).where(
+            models.EvaluationQuery.id == query_id,
+            models.EvaluationQuery.owner_id == request.state.user.id,
+        )
+    )
+    if evaluation_query is None:
+        raise HTTPException(status_code=404, detail="Değerlendirme sorgusu bulunamadı")
+    db.delete(evaluation_query)
+    auth.add_audit_event(
+        db,
+        request.state.user.id,
+        "evaluation.query_deleted",
+        entity_type="evaluation_query",
+        entity_id=evaluation_query.id,
+    )
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@app.post(
+    f"{settings.api_prefix}/evaluation/runs",
+    response_model=schemas.EvaluationRunRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def run_evaluation(
+    payload: schemas.EvaluationRunRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> schemas.EvaluationRunRead:
+    queries = list(
+        db.scalars(
+            select(models.EvaluationQuery)
+            .where(models.EvaluationQuery.owner_id == request.state.user.id)
+            .order_by(models.EvaluationQuery.created_at)
+            .limit(200)
+        ).all()
+    )
+    if not queries:
+        raise HTTPException(
+            status_code=409,
+            detail="Deney çalıştırmadan önce en az bir değerlendirme sorgusu ekleyin",
+        )
+    metrics, details, best_mode = evaluation.run_retrieval_evaluation(
+        db,
+        queries,
+        payload.modes,
+        payload.top_k,
+        request.state.user.id,
+    )
+    run = models.EvaluationRun(
+        owner_id=request.state.user.id,
+        modes=payload.modes,
+        top_k=payload.top_k,
+        query_count=len(queries),
+        metrics_json=metrics,
+        details_json=details,
+        best_mode=best_mode,
+    )
+    db.add(run)
+    db.flush()
+    auth.add_audit_event(
+        db,
+        request.state.user.id,
+        "evaluation.run_completed",
+        entity_type="evaluation_run",
+        entity_id=run.id,
+        event_data={
+            "modes": payload.modes,
+            "top_k": payload.top_k,
+            "query_count": len(queries),
+            "best_mode": best_mode,
+        },
+    )
+    db.commit()
+    db.refresh(run)
+    return evaluation_run_to_read(run)
+
+
+@app.get(
+    f"{settings.api_prefix}/evaluation/runs",
+    response_model=list[schemas.EvaluationRunRead],
+)
+def list_evaluation_runs(
+    request: Request,
+    db: Session = Depends(get_db),
+) -> list[schemas.EvaluationRunRead]:
+    runs = db.scalars(
+        select(models.EvaluationRun)
+        .where(models.EvaluationRun.owner_id == request.state.user.id)
+        .order_by(models.EvaluationRun.created_at.desc())
+        .limit(30)
+    ).all()
+    return [evaluation_run_to_read(run) for run in runs]
+
+
+@app.get(
+    f"{settings.api_prefix}/evaluation/summary",
+    response_model=schemas.EvaluationSummary,
+)
+def evaluation_summary(
+    request: Request,
+    db: Session = Depends(get_db),
+) -> schemas.EvaluationSummary:
+    query_count = db.scalar(
+        select(func.count())
+        .select_from(models.EvaluationQuery)
+        .where(models.EvaluationQuery.owner_id == request.state.user.id)
+    ) or 0
+    runs = list(
+        db.scalars(
+            select(models.EvaluationRun)
+            .where(models.EvaluationRun.owner_id == request.state.user.id)
+            .order_by(models.EvaluationRun.created_at.desc())
+        ).all()
+    )
+    best_metric: dict | None = None
+    for run in runs:
+        for metric in run.metrics_json:
+            if best_metric is None or (
+                metric["hit_rate"], metric["mrr"], -metric["avg_latency_ms"]
+            ) > (
+                best_metric["hit_rate"],
+                best_metric["mrr"],
+                -best_metric["avg_latency_ms"],
+            ):
+                best_metric = metric
+    return schemas.EvaluationSummary(
+        query_count=query_count,
+        run_count=len(runs),
+        best_mode=best_metric["mode"] if best_metric else None,
+        best_hit_rate=best_metric["hit_rate"] if best_metric else 0,
+        latest_run_at=runs[0].created_at if runs else None,
+    )
+
+
+@app.post(
+    f"{settings.api_prefix}/cases/evidence",
+    response_model=schemas.EvidenceResponse,
+)
+def evidence_based_assistance(
+    payload: schemas.EvidenceRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> schemas.EvidenceResponse:
+    search_payload = schemas.CaseSearchRequest(
+        query=payload.query,
+        dtc_code=payload.dtc_code,
+        limit=5,
+        search_mode=payload.search_mode,
+        approved_only=True,
+    )
+    matches = services.search_cases(db, search_payload, request.state.user.id)
+    synthesis = evaluation.build_evidence_summary(matches)
+    evidence_items = [
+        schemas.CaseSearchResult(
+            work_order=schemas.WorkOrderRead.model_validate(match.work_order),
+            vehicle=schemas.VehicleRead.model_validate(match.work_order.vehicle),
+            match_reason=match.reason,
+            similarity_score=round(match.score, 4),
+            search_method=match.method,
+        )
+        for match in matches
+    ]
+    return schemas.EvidenceResponse(**synthesis, evidence=evidence_items)
 
 
 @app.post(f"{settings.api_prefix}/cases/search", response_model=list[schemas.CaseSearchResult])

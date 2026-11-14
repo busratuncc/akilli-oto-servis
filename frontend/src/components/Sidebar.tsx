@@ -8,6 +8,7 @@ import {
   ShieldCheck,
   Wrench,
   Warehouse,
+  FlaskConical,
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { useI18n } from "../i18n";
@@ -19,6 +20,7 @@ const links = [
   { to: "/inventory", label: "nav.inventory", icon: Warehouse },
   { to: "/finance", label: "nav.finance", icon: ReceiptText },
   { to: "/assistant", label: "nav.assistant", icon: Bot },
+  { to: "/evaluation", label: "nav.evaluation", icon: FlaskConical },
   { to: "/settings", label: "nav.settings", icon: Settings },
 ];
 

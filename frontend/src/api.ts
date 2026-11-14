@@ -21,6 +21,11 @@ import type {
   CardPaymentStartResult,
   CardChallenge,
   CardChallengeVerifyResult,
+  EvaluationMode,
+  EvaluationQuery,
+  EvaluationRun,
+  EvaluationSummary,
+  EvidenceResponse,
 } from "./types";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000/api";
@@ -172,5 +177,37 @@ export const api = {
         approved_only: false,
       }),
     }),
+  evidenceAssistance: (
+    query: string,
+    dtcCode: string,
+    searchMode: EvaluationMode,
+  ) => request<EvidenceResponse>("/cases/evidence", {
+    method: "POST",
+    body: JSON.stringify({
+      query,
+      dtc_code: dtcCode || null,
+      search_mode: searchMode,
+    }),
+  }),
+  listEvaluationQueries: () => request<EvaluationQuery[]>("/evaluation/queries"),
+  createEvaluationQuery: (payload: {
+    name: string;
+    query_text: string;
+    dtc_code: string | null;
+    expected_work_order_id: string;
+    notes: string | null;
+  }) => request<EvaluationQuery>("/evaluation/queries", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  }),
+  deleteEvaluationQuery: (id: string) =>
+    request<void>(`/evaluation/queries/${id}`, { method: "DELETE" }),
+  listEvaluationRuns: () => request<EvaluationRun[]>("/evaluation/runs"),
+  runEvaluation: (modes: EvaluationMode[], topK: number) =>
+    request<EvaluationRun>("/evaluation/runs", {
+      method: "POST",
+      body: JSON.stringify({ modes, top_k: topK }),
+    }),
+  evaluationSummary: () => request<EvaluationSummary>("/evaluation/summary"),
 };
 

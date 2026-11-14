@@ -298,6 +298,43 @@ class StockMovement(Base):
     part: Mapped[InventoryPart] = relationship(back_populates="movements")
 
 
+class EvaluationQuery(Base):
+    __tablename__ = "evaluation_queries"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    owner_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    expected_work_order_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("work_orders.id", ondelete="CASCADE"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(160))
+    query_text: Mapped[str] = mapped_column(Text)
+    dtc_code: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+
+
+class EvaluationRun(Base):
+    __tablename__ = "evaluation_runs"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    owner_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    modes: Mapped[list[str]] = mapped_column(JSON)
+    top_k: Mapped[int] = mapped_column(Integer)
+    query_count: Mapped[int] = mapped_column(Integer)
+    metrics_json: Mapped[list[dict]] = mapped_column(JSON)
+    details_json: Mapped[list[dict]] = mapped_column(JSON)
+    best_mode: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+
+
 class OTPChallenge(Base):
     __tablename__ = "otp_challenges"
 

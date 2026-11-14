@@ -2,7 +2,7 @@
 
 Türkçe servis anlatımlarını yapılandırılmış iş emirlerine dönüştürmek, atölyedeki servis sürecini izlemek, OBD-II kodlarını kaydetmek ve geçmiş vakalar arasında arama yapmak için geliştirilen tez uygulaması.
 
-## Mevcut uygulama (v0.9)
+## Mevcut uygulama (v1.0)
 
 - Atölye özetlerini ve iş emri dağılımını gösteren dashboard
 - Anonim kodla araç kaydı ve araç servis geçmişi
@@ -33,6 +33,10 @@ Türkçe servis anlatımlarını yapılandırılmış iş emirlerine dönüştü
 - Test kartı formu, rastgele temalı yerel test bankası ve 3D Secure doğrulama akışı
 - `123456` başarılı kodu, hatalı kod/deneme sınırı, süre aşımı ve çift tahsilat koruması
 - Tam kart numarası, son kullanma tarihi ve CVV'yi backend'e göndermeyen güvenli demo mimarisi
+- Usta onaylı vakalardan bağımsız test sorguları oluşturulan AI değerlendirme veri seti
+- Anahtar kelime, semantik ve hibrit arama için Hit@K, MRR ve gecikme karşılaştırması
+- Deney geçmişi, sorgu bazlı beklenen sıra ve en iyi yöntem özeti
+- Yalnızca onaylı vakalardan kanıt, güven düzeyi ve sınırlama gösteren karar desteği
 - Hesaba özel parça kartları, stok kodu, kategori, marka, birim ve fiyat yönetimi
 - Manuel stok giriş/çıkışı, hareket geçmişi ve kritik stok uyarıları
 - Stok maliyet değeri, stokta olmayan ve kritik seviyedeki parça özetleri
@@ -74,7 +78,19 @@ Windows için aynı işlemi yapan yardımcı komut:
 5. Sağlık kontrolü: http://localhost:8000/api/health
 6. Geliştirme e-posta kutusu (Mailpit): http://localhost:8026
 
-Uygulama menüsü yedi bölümden oluşur: **Gösterge paneli**, **Araçlar**, **İş emirleri**, **Stok**, **Finans**, **Akıllı asistan** ve **Hesap ayarları**.
+Uygulama menüsü sekiz bölümden oluşur: **Gösterge paneli**, **Araçlar**, **İş emirleri**, **Stok**, **Finans**, **Akıllı asistan**, **AI deneyleri** ve **Hesap ayarları**.
+
+### AI deney ve değerlendirme laboratuvarı
+
+Önce tamamlanmış iş emri usta onaylı vaka olarak işaretlenir. **AI deneyleri** ekranında bu vaka beklenen doğru cevap seçilir ve aynı arızayı anlatan bağımsız bir müşteri sorgusu yazılır. Beklenen vakanın kayıt metnini doğrudan sorguya kopyalamak veri sızıntısı oluşturacağı için arayüz bunu özellikle uyarır.
+
+Deney çalıştırıldığında aynı veri seti anahtar kelime, semantik ve hibrit aramayla değerlendirilir:
+
+- **Hit@K:** Beklenen doğru vakanın ilk K sonuç içinde bulunma oranı.
+- **MRR:** Doğru vakanın sonuç listesindeki sırasını ödüllendiren ortalama ters sıra değeri.
+- **Ortalama gecikme:** Bir sorgunun sonuçlanma süresi.
+
+Sonuçlar yöntem ve sorgu bazında veritabanında saklanır. Akıllı asistandaki **Kanıtlı öneri oluştur** seçeneği yalnızca usta onaylı vakaları getirir; en güçlü vakanın doğrulanmış arıza, işlem ve sonuç bilgisini kaynak olarak gösterir. Güven düzeyi vaka sayısı ve benzerlik puanına göre hesaplanır. Çıktı kesin teşhis değildir ve fiziksel kontrol gerektirir.
 
 ### Stok ve parça yönetimi
 

@@ -11,12 +11,14 @@ import {
   Square,
   UploadCloud,
   Wrench,
+  FileCheck2,
+  Quote,
 } from "lucide-react";
 
 import { api } from "../api";
 import { StatusBadge } from "../components/StatusBadge";
 import { useI18n } from "../i18n";
-import type { AIRuntimeStatus, CaseSearchResult, ExtractionPreview, TranscriptionResult } from "../types";
+import type { AIRuntimeStatus, CaseSearchResult, EvidenceResponse, ExtractionPreview, TranscriptionResult } from "../types";
 import { formatNumber, orderCode } from "../utils";
 import type { IntakeDraft } from "./WorkOrdersPage";
 
@@ -41,7 +43,9 @@ export function AssistantPage({ onUseDraft, notify, reportError }: Props) {
   const [dtcCode, setDtcCode] = useState("");
   const [searchMode, setSearchMode] = useState<"hybrid" | "keyword" | "semantic">("hybrid");
   const [results, setResults] = useState<CaseSearchResult[]>([]);
+  const [evidence, setEvidence] = useState<EvidenceResponse | null>(null);
   const [searching, setSearching] = useState(false);
+  const [buildingEvidence, setBuildingEvidence] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -140,6 +144,24 @@ export function AssistantPage({ onUseDraft, notify, reportError }: Props) {
     }
   }
 
+  async function buildEvidence() {
+    if (query.trim().length < 3) {
+      reportError(t("assistant.evidenceQueryRequired"));
+      return;
+    }
+    setBuildingEvidence(true);
+    try {
+      const result = await api.evidenceAssistance(query, dtcCode, searchMode);
+      setEvidence(result);
+      setResults(result.evidence);
+      notify(t("assistant.evidenceReady"));
+    } catch (error) {
+      reportError(error instanceof Error ? error.message : t("assistant.evidenceError"));
+    } finally {
+      setBuildingEvidence(false);
+    }
+  }
+
   function usePreview() {
     if (!preview) return;
     const symptoms = Array.isArray(preview.probable_fields.symptoms)
@@ -214,8 +236,9 @@ export function AssistantPage({ onUseDraft, notify, reportError }: Props) {
           <label className="search-input"><Search size={17} /><input required minLength={2} value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t("assistant.searchPlaceholder")} /></label>
           <input value={dtcCode} onChange={(event) => setDtcCode(event.target.value.toUpperCase())} maxLength={5} placeholder="P0299" />
           <select value={searchMode} onChange={(event) => setSearchMode(event.target.value as "hybrid" | "keyword" | "semantic")}><option value="hybrid">{t("assistant.modeHybrid")}</option><option value="semantic">{t("assistant.modeSemantic")}</option><option value="keyword">{t("assistant.modeKeyword")}</option></select>
-          <button className="primary-button" disabled={searching}>{searching ? t("assistant.searching") : t("assistant.search")}</button>
+          <div className="case-search-actions"><button className="primary-button" disabled={searching}>{searching ? t("assistant.searching") : t("assistant.search")}</button><button type="button" className="secondary-button" disabled={buildingEvidence} onClick={() => void buildEvidence()}><FileCheck2 size={16} /> {buildingEvidence ? t("assistant.buildingEvidence") : t("assistant.buildEvidence")}</button></div>
         </form>
+        {evidence && <article className={`evidence-answer confidence-${evidence.confidence}`}><div className="evidence-head"><span className="evidence-icon"><FileCheck2 size={21} /></span><div><span className="section-kicker">{t("assistant.evidenceAnswer")}</span><h3>{t(`assistant.confidence.${evidence.confidence}`)} · %{Math.round(evidence.confidence_score * 100)}</h3></div><span className="confidence-pill">{t("assistant.approvedEvidence", { count: evidence.evidence.length })}</span></div><p className="evidence-summary"><Quote size={18} /> {evidence.summary}</p>{evidence.suggested_checks.length > 0 && <div className="evidence-checks"><strong>{t("assistant.suggestedChecks")}</strong><ol>{evidence.suggested_checks.map((item) => <li key={item}>{item}</li>)}</ol></div>}<div className="evidence-limitations"><ShieldAlert size={18} /><span>{evidence.limitations.join(" ")}</span></div></article>}
         <div className="case-result-grid">
           {results.map((result) => (
             <article className="case-card" key={result.work_order.id}>

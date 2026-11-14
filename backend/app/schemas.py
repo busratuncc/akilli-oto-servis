@@ -240,6 +240,108 @@ class CaseSearchResult(BaseModel):
     search_method: Literal["keyword", "semantic", "hybrid", "dtc"] = "keyword"
 
 
+EvaluationMode = Literal["keyword", "semantic", "hybrid"]
+
+
+class EvidenceRequest(BaseModel):
+    query: str = Field(min_length=3, max_length=2000)
+    dtc_code: str | None = Field(default=None, max_length=8)
+    search_mode: EvaluationMode = "hybrid"
+
+
+class EvidenceResponse(BaseModel):
+    summary: str
+    confidence: Literal["insufficient", "low", "medium", "high"]
+    confidence_score: float = Field(ge=0, le=1)
+    suggested_checks: list[str]
+    limitations: list[str]
+    evidence: list[CaseSearchResult]
+
+
+class EvaluationQueryCreate(BaseModel):
+    name: str = Field(min_length=2, max_length=160)
+    query_text: str = Field(min_length=3, max_length=2000)
+    dtc_code: str | None = Field(default=None, max_length=8)
+    expected_work_order_id: uuid.UUID
+    notes: str | None = Field(default=None, max_length=2000)
+
+    @field_validator("name", "query_text")
+    @classmethod
+    def normalize_evaluation_text(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator("dtc_code")
+    @classmethod
+    def normalize_evaluation_dtc(cls, value: str | None) -> str | None:
+        if not value:
+            return None
+        normalized = value.strip().upper()
+        if not re.fullmatch(r"[PBCU][0-3][0-9A-F]{3}", normalized):
+            raise ValueError("OBD-II kodu P0299 benzeri beş karakterli olmalıdır")
+        return normalized
+
+
+class EvaluationQueryRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str
+    query_text: str
+    dtc_code: str | None
+    expected_work_order_id: uuid.UUID
+    notes: str | None
+    created_at: datetime
+
+
+class EvaluationRunRequest(BaseModel):
+    modes: list[EvaluationMode] = Field(min_length=1, max_length=3)
+    top_k: int = Field(default=5, ge=1, le=10)
+
+    @field_validator("modes")
+    @classmethod
+    def unique_modes(cls, value: list[EvaluationMode]) -> list[EvaluationMode]:
+        return list(dict.fromkeys(value))
+
+
+class EvaluationModeMetrics(BaseModel):
+    mode: EvaluationMode
+    hit_rate: float = Field(ge=0, le=1)
+    mrr: float = Field(ge=0, le=1)
+    avg_latency_ms: float = Field(ge=0)
+    hits: int = Field(ge=0)
+    query_count: int = Field(ge=0)
+
+
+class EvaluationDetail(BaseModel):
+    query_id: uuid.UUID
+    query_name: str
+    expected_work_order_id: uuid.UUID
+    mode: EvaluationMode
+    rank: int | None
+    reciprocal_rank: float = Field(ge=0, le=1)
+    latency_ms: float = Field(ge=0)
+    result_work_order_ids: list[uuid.UUID]
+
+
+class EvaluationRunRead(BaseModel):
+    id: uuid.UUID
+    modes: list[EvaluationMode]
+    top_k: int
+    query_count: int
+    metrics: list[EvaluationModeMetrics]
+    details: list[EvaluationDetail]
+    best_mode: EvaluationMode | None
+    created_at: datetime
+
+
+class EvaluationSummary(BaseModel):
+    query_count: int
+    run_count: int
+    best_mode: EvaluationMode | None
+    best_hit_rate: float = Field(ge=0, le=1)
+    latest_run_at: datetime | None
+
+
 class TranscriptionResponse(BaseModel):
     transcript: str
     language: str
