@@ -11,7 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 from starlette.concurrency import run_in_threadpool
 
-from app import auth, evaluation, finance, inventory, ml, models, schemas, services, test_bank
+from app import auth, evaluation, finance, inventory, ml, models, schemas, scheduling, services, test_bank
 from app.config import settings
 from app.database import SessionLocal, get_db
 
@@ -115,6 +115,101 @@ def get_inventory_part_or_404(
     if part is None:
         raise HTTPException(status_code=404, detail="Stok parçası bulunamadı")
     return part
+
+
+def get_appointment_or_404(
+    appointment_id: uuid.UUID,
+    user_id: uuid.UUID,
+    db: Session,
+) -> models.Appointment:
+    appointment = db.scalar(
+        select(models.Appointment).where(
+            models.Appointment.id == appointment_id,
+            models.Appointment.owner_id == user_id,
+        )
+    )
+    if appointment is None:
+        raise HTTPException(status_code=404, detail="Randevu bulunamadı")
+    return appointment
+
+
+def get_reminder_or_404(
+    reminder_id: uuid.UUID,
+    user_id: uuid.UUID,
+    db: Session,
+) -> models.MaintenanceReminder:
+    reminder = db.scalar(
+        select(models.MaintenanceReminder)
+        .options(selectinload(models.MaintenanceReminder.vehicle))
+        .where(
+            models.MaintenanceReminder.id == reminder_id,
+            models.MaintenanceReminder.owner_id == user_id,
+        )
+    )
+    if reminder is None:
+        raise HTTPException(status_code=404, detail="Bakım hatırlatması bulunamadı")
+    return reminder
+
+
+def ensure_owned_vehicle(vehicle_id: uuid.UUID, user_id: uuid.UUID, db: Session) -> models.Vehicle:
+    vehicle = db.scalar(
+        select(models.Vehicle).where(
+            models.Vehicle.id == vehicle_id,
+            models.Vehicle.owner_id == user_id,
+        )
+    )
+    if vehicle is None:
+        raise HTTPException(status_code=404, detail="Araç bulunamadı")
+    return vehicle
+
+
+def ensure_technician_available(
+    *,
+    user_id: uuid.UUID,
+    technician: str | None,
+    scheduled_start: datetime,
+    scheduled_end: datetime,
+    appointment_status: str,
+    db: Session,
+    exclude_id: uuid.UUID | None = None,
+) -> None:
+    if not technician or appointment_status in {"completed", "cancelled", "no_show"}:
+        return
+    query = select(models.Appointment.id).where(
+        models.Appointment.owner_id == user_id,
+        func.lower(models.Appointment.assigned_technician) == technician.strip().lower(),
+        models.Appointment.status.notin_(["completed", "cancelled", "no_show"]),
+        models.Appointment.scheduled_start < scheduled_end,
+        models.Appointment.scheduled_end > scheduled_start,
+    )
+    if exclude_id is not None:
+        query = query.where(models.Appointment.id != exclude_id)
+    if db.scalar(query) is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="Bu usta için seçilen saat aralığında başka bir randevu var",
+        )
+
+
+def reminder_read(reminder: models.MaintenanceReminder) -> schemas.MaintenanceReminderRead:
+    return schemas.MaintenanceReminderRead(
+        id=reminder.id,
+        vehicle_id=reminder.vehicle_id,
+        title=reminder.title,
+        due_date=reminder.due_date,
+        due_mileage=reminder.due_mileage,
+        status=reminder.status,
+        due_state=scheduling.reminder_state(
+            status=reminder.status,
+            due_date=reminder.due_date,
+            due_mileage=reminder.due_mileage,
+            current_mileage=reminder.vehicle.mileage,
+        ),
+        notes=reminder.notes,
+        completed_at=reminder.completed_at,
+        created_at=reminder.created_at,
+        updated_at=reminder.updated_at,
+    )
 
 
 def get_card_challenge_or_404(
@@ -1551,4 +1646,268 @@ def search_cases(
         )
         for match in results
     ]
+
+
+@app.post(
+    f"{settings.api_prefix}/appointments",
+    response_model=schemas.AppointmentRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_appointment(
+    payload: schemas.AppointmentCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> models.Appointment:
+    ensure_owned_vehicle(payload.vehicle_id, request.state.user.id, db)
+    try:
+        scheduled_start, scheduled_end = scheduling.normalize_interval(
+            payload.scheduled_start, payload.scheduled_end
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    technician = payload.assigned_technician.strip() if payload.assigned_technician else None
+    ensure_technician_available(
+        user_id=request.state.user.id,
+        technician=technician,
+        scheduled_start=scheduled_start,
+        scheduled_end=scheduled_end,
+        appointment_status=payload.status,
+        db=db,
+    )
+    appointment = models.Appointment(
+        **payload.model_dump(exclude={"scheduled_start", "scheduled_end", "assigned_technician"}),
+        owner_id=request.state.user.id,
+        scheduled_start=scheduled_start,
+        scheduled_end=scheduled_end,
+        assigned_technician=technician,
+    )
+    db.add(appointment)
+    db.flush()
+    auth.add_audit_event(
+        db,
+        request.state.user.id,
+        "appointment.created",
+        entity_type="appointment",
+        entity_id=appointment.id,
+        event_data={
+            "vehicle_id": str(appointment.vehicle_id),
+            "status": appointment.status,
+            "scheduled_start": appointment.scheduled_start.isoformat(),
+        },
+    )
+    db.commit()
+    db.refresh(appointment)
+    return appointment
+
+
+@app.get(f"{settings.api_prefix}/appointments", response_model=list[schemas.AppointmentRead])
+def list_appointments(request: Request, db: Session = Depends(get_db)) -> list[models.Appointment]:
+    return list(
+        db.scalars(
+            select(models.Appointment)
+            .where(models.Appointment.owner_id == request.state.user.id)
+            .order_by(models.Appointment.scheduled_start.asc())
+        ).all()
+    )
+
+
+@app.patch(
+    f"{settings.api_prefix}/appointments/{{appointment_id}}",
+    response_model=schemas.AppointmentRead,
+)
+def update_appointment(
+    appointment_id: uuid.UUID,
+    payload: schemas.AppointmentUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> models.Appointment:
+    appointment = get_appointment_or_404(appointment_id, request.state.user.id, db)
+    changes = payload.model_dump(exclude_unset=True)
+    required_fields = {
+        "vehicle_id", "scheduled_start", "scheduled_end", "service_type", "customer_complaint", "status"
+    }
+    if any(field in changes and changes[field] is None for field in required_fields):
+        raise HTTPException(status_code=422, detail="Zorunlu randevu alanları boş bırakılamaz")
+    vehicle_id = changes.get("vehicle_id", appointment.vehicle_id)
+    if "vehicle_id" in changes:
+        ensure_owned_vehicle(vehicle_id, request.state.user.id, db)
+    raw_start = changes.get("scheduled_start", appointment.scheduled_start)
+    raw_end = changes.get("scheduled_end", appointment.scheduled_end)
+    try:
+        scheduled_start, scheduled_end = scheduling.normalize_interval(raw_start, raw_end)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    technician_value = changes.get("assigned_technician", appointment.assigned_technician)
+    technician = technician_value.strip() if technician_value else None
+    appointment_status = changes.get("status", appointment.status)
+    ensure_technician_available(
+        user_id=request.state.user.id,
+        technician=technician,
+        scheduled_start=scheduled_start,
+        scheduled_end=scheduled_end,
+        appointment_status=appointment_status,
+        db=db,
+        exclude_id=appointment.id,
+    )
+    changes["scheduled_start"] = scheduled_start
+    changes["scheduled_end"] = scheduled_end
+    changes["assigned_technician"] = technician
+    for field, value in changes.items():
+        setattr(appointment, field, value)
+    auth.add_audit_event(
+        db,
+        request.state.user.id,
+        "appointment.updated",
+        entity_type="appointment",
+        entity_id=appointment.id,
+        event_data={"fields": sorted(payload.model_fields_set), "status": appointment.status},
+    )
+    db.commit()
+    db.refresh(appointment)
+    return appointment
+
+
+@app.post(
+    f"{settings.api_prefix}/maintenance-reminders",
+    response_model=schemas.MaintenanceReminderRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_maintenance_reminder(
+    payload: schemas.MaintenanceReminderCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> schemas.MaintenanceReminderRead:
+    vehicle = ensure_owned_vehicle(payload.vehicle_id, request.state.user.id, db)
+    reminder = models.MaintenanceReminder(
+        **payload.model_dump(),
+        owner_id=request.state.user.id,
+        vehicle=vehicle,
+    )
+    db.add(reminder)
+    db.flush()
+    auth.add_audit_event(
+        db,
+        request.state.user.id,
+        "maintenance_reminder.created",
+        entity_type="maintenance_reminder",
+        entity_id=reminder.id,
+        event_data={"vehicle_id": str(reminder.vehicle_id), "title": reminder.title},
+    )
+    db.commit()
+    db.refresh(reminder)
+    return reminder_read(reminder)
+
+
+@app.get(
+    f"{settings.api_prefix}/maintenance-reminders",
+    response_model=list[schemas.MaintenanceReminderRead],
+)
+def list_maintenance_reminders(
+    request: Request,
+    db: Session = Depends(get_db),
+) -> list[schemas.MaintenanceReminderRead]:
+    reminders = list(
+        db.scalars(
+            select(models.MaintenanceReminder)
+            .options(selectinload(models.MaintenanceReminder.vehicle))
+            .where(models.MaintenanceReminder.owner_id == request.state.user.id)
+            .order_by(models.MaintenanceReminder.created_at.desc())
+        ).all()
+    )
+    return [reminder_read(reminder) for reminder in reminders]
+
+
+@app.patch(
+    f"{settings.api_prefix}/maintenance-reminders/{{reminder_id}}",
+    response_model=schemas.MaintenanceReminderRead,
+)
+def update_maintenance_reminder(
+    reminder_id: uuid.UUID,
+    payload: schemas.MaintenanceReminderUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> schemas.MaintenanceReminderRead:
+    reminder = get_reminder_or_404(reminder_id, request.state.user.id, db)
+    changes = payload.model_dump(exclude_unset=True)
+    required_fields = {"vehicle_id", "title", "status"}
+    if any(field in changes and changes[field] is None for field in required_fields):
+        raise HTTPException(status_code=422, detail="Zorunlu bakım alanları boş bırakılamaz")
+    vehicle_id = changes.get("vehicle_id", reminder.vehicle_id)
+    if "vehicle_id" in changes:
+        reminder.vehicle = ensure_owned_vehicle(vehicle_id, request.state.user.id, db)
+    due_date = changes.get("due_date", reminder.due_date)
+    due_mileage = changes.get("due_mileage", reminder.due_mileage)
+    if due_date is None and due_mileage is None:
+        raise HTTPException(
+            status_code=422,
+            detail="Bakım hatırlatması için tarih veya kilometre girilmelidir",
+        )
+    for field, value in changes.items():
+        if field != "vehicle_id":
+            setattr(reminder, field, value)
+    if "status" in changes:
+        reminder.completed_at = (
+            datetime.now(timezone.utc) if changes["status"] == "completed" else None
+        )
+    auth.add_audit_event(
+        db,
+        request.state.user.id,
+        "maintenance_reminder.updated",
+        entity_type="maintenance_reminder",
+        entity_id=reminder.id,
+        event_data={"fields": sorted(payload.model_fields_set), "status": reminder.status},
+    )
+    db.commit()
+    db.refresh(reminder)
+    return reminder_read(reminder)
+
+
+@app.get(f"{settings.api_prefix}/schedule/summary", response_model=schemas.ScheduleSummary)
+def schedule_summary(request: Request, db: Session = Depends(get_db)) -> schemas.ScheduleSummary:
+    user_id = request.state.user.id
+    today = scheduling.workshop_today()
+    day_start, day_end = scheduling.local_day_bounds(today)
+    now = datetime.now(timezone.utc)
+    upcoming_end = now + timedelta(days=7)
+    active_statuses = ["scheduled", "confirmed", "checked_in", "in_service"]
+    today_count = db.scalar(
+        select(func.count()).select_from(models.Appointment).where(
+            models.Appointment.owner_id == user_id,
+            models.Appointment.scheduled_start >= day_start,
+            models.Appointment.scheduled_start < day_end,
+            models.Appointment.status.notin_(["cancelled", "no_show"]),
+        )
+    ) or 0
+    upcoming_count = db.scalar(
+        select(func.count()).select_from(models.Appointment).where(
+            models.Appointment.owner_id == user_id,
+            models.Appointment.scheduled_start >= now,
+            models.Appointment.scheduled_start < upcoming_end,
+            models.Appointment.status.in_(active_statuses),
+        )
+    ) or 0
+    active_count = db.scalar(
+        select(func.count()).select_from(models.Appointment).where(
+            models.Appointment.owner_id == user_id,
+            models.Appointment.status.in_(active_statuses),
+        )
+    ) or 0
+    reminders = list(
+        db.scalars(
+            select(models.MaintenanceReminder)
+            .options(selectinload(models.MaintenanceReminder.vehicle))
+            .where(
+                models.MaintenanceReminder.owner_id == user_id,
+                models.MaintenanceReminder.status == "pending",
+            )
+        ).all()
+    )
+    states = [reminder_read(reminder).due_state for reminder in reminders]
+    return schemas.ScheduleSummary(
+        today_appointments=today_count,
+        upcoming_appointments=upcoming_count,
+        active_appointments=active_count,
+        overdue_reminders=states.count("overdue"),
+        due_soon_reminders=states.count("due_soon"),
+    )
 

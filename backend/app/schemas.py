@@ -5,7 +5,7 @@ from typing import Literal
 
 import re
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
 
 WorkOrderStatus = Literal[
@@ -16,6 +16,17 @@ WorkOrderStatus = Literal[
     "completed",
     "cancelled",
 ]
+AppointmentStatus = Literal[
+    "scheduled",
+    "confirmed",
+    "checked_in",
+    "in_service",
+    "completed",
+    "cancelled",
+    "no_show",
+]
+ReminderStatus = Literal["pending", "completed", "dismissed"]
+ReminderDueState = Literal["overdue", "due_soon", "upcoming", "completed", "dismissed"]
 Language = Literal["tr", "en"]
 
 
@@ -208,6 +219,97 @@ class WorkOrderRead(BaseModel):
     voice_transcript: str | None
     created_at: datetime
     dtc_codes: list[DtcCodeRead]
+
+
+class AppointmentCreate(BaseModel):
+    vehicle_id: uuid.UUID
+    scheduled_start: datetime
+    scheduled_end: datetime
+    service_type: str = Field(min_length=2, max_length=120)
+    customer_complaint: str = Field(min_length=3, max_length=2_000)
+    status: AppointmentStatus = "scheduled"
+    assigned_technician: str | None = Field(default=None, max_length=120)
+    notes: str | None = Field(default=None, max_length=2_000)
+
+    @model_validator(mode="after")
+    def validate_interval(self) -> "AppointmentCreate":
+        both_aware = self.scheduled_start.tzinfo is not None and self.scheduled_end.tzinfo is not None
+        both_naive = self.scheduled_start.tzinfo is None and self.scheduled_end.tzinfo is None
+        if (both_aware or both_naive) and self.scheduled_end <= self.scheduled_start:
+            raise ValueError("Randevu bitiş saati başlangıç saatinden sonra olmalıdır")
+        return self
+
+
+class AppointmentUpdate(BaseModel):
+    vehicle_id: uuid.UUID | None = None
+    scheduled_start: datetime | None = None
+    scheduled_end: datetime | None = None
+    service_type: str | None = Field(default=None, min_length=2, max_length=120)
+    customer_complaint: str | None = Field(default=None, min_length=3, max_length=2_000)
+    status: AppointmentStatus | None = None
+    assigned_technician: str | None = Field(default=None, max_length=120)
+    notes: str | None = Field(default=None, max_length=2_000)
+
+
+class AppointmentRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    vehicle_id: uuid.UUID
+    scheduled_start: datetime
+    scheduled_end: datetime
+    service_type: str
+    customer_complaint: str
+    status: AppointmentStatus
+    assigned_technician: str | None
+    notes: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class MaintenanceReminderCreate(BaseModel):
+    vehicle_id: uuid.UUID
+    title: str = Field(min_length=2, max_length=160)
+    due_date: date | None = None
+    due_mileage: int | None = Field(default=None, ge=0, le=5_000_000)
+    notes: str | None = Field(default=None, max_length=2_000)
+
+    @model_validator(mode="after")
+    def validate_due_target(self) -> "MaintenanceReminderCreate":
+        if self.due_date is None and self.due_mileage is None:
+            raise ValueError("Bakım hatırlatması için tarih veya kilometre girilmelidir")
+        return self
+
+
+class MaintenanceReminderUpdate(BaseModel):
+    vehicle_id: uuid.UUID | None = None
+    title: str | None = Field(default=None, min_length=2, max_length=160)
+    due_date: date | None = None
+    due_mileage: int | None = Field(default=None, ge=0, le=5_000_000)
+    status: ReminderStatus | None = None
+    notes: str | None = Field(default=None, max_length=2_000)
+
+
+class MaintenanceReminderRead(BaseModel):
+    id: uuid.UUID
+    vehicle_id: uuid.UUID
+    title: str
+    due_date: date | None
+    due_mileage: int | None
+    status: ReminderStatus
+    due_state: ReminderDueState
+    notes: str | None
+    completed_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ScheduleSummary(BaseModel):
+    today_appointments: int
+    upcoming_appointments: int
+    active_appointments: int
+    overdue_reminders: int
+    due_soon_reminders: int
 
 
 class ExtractionRequest(BaseModel):

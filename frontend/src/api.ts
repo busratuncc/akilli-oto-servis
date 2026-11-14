@@ -26,6 +26,11 @@ import type {
   EvaluationRun,
   EvaluationSummary,
   EvidenceResponse,
+  Appointment,
+  AppointmentStatus,
+  MaintenanceReminder,
+  ReminderStatus,
+  ScheduleSummary,
 } from "./types";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000/api";
@@ -209,5 +214,54 @@ export const api = {
       body: JSON.stringify({ modes, top_k: topK }),
     }),
   evaluationSummary: () => request<EvaluationSummary>("/evaluation/summary"),
+  listAppointments: () => request<Appointment[]>("/appointments"),
+  createAppointment: (payload: {
+    vehicle_id: string;
+    scheduled_start: string;
+    scheduled_end: string;
+    service_type: string;
+    customer_complaint: string;
+    assigned_technician: string | null;
+    notes: string | null;
+  }) => request<Appointment>("/appointments", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  }),
+  updateAppointment: (id: string, payload: Partial<{
+    vehicle_id: string;
+    scheduled_start: string;
+    scheduled_end: string;
+    service_type: string;
+    customer_complaint: string;
+    status: AppointmentStatus;
+    assigned_technician: string | null;
+    notes: string | null;
+  }>) => request<Appointment>(`/appointments/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  }),
+  listMaintenanceReminders: () => request<MaintenanceReminder[]>("/maintenance-reminders"),
+  createMaintenanceReminder: (payload: {
+    vehicle_id: string;
+    title: string;
+    due_date: string | null;
+    due_mileage: number | null;
+    notes: string | null;
+  }) => request<MaintenanceReminder>("/maintenance-reminders", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  }),
+  updateMaintenanceReminder: (id: string, payload: Partial<{
+    vehicle_id: string;
+    title: string;
+    due_date: string | null;
+    due_mileage: number | null;
+    status: ReminderStatus;
+    notes: string | null;
+  }>) => request<MaintenanceReminder>(`/maintenance-reminders/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  }),
+  scheduleSummary: () => request<ScheduleSummary>("/schedule/summary"),
 };
 

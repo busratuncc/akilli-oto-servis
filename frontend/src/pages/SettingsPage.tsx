@@ -44,6 +44,10 @@ const EVENT_LABEL_KEYS: Record<string, string> = {
   "evaluation.query_created": "settings.eventEvaluationQueryCreated",
   "evaluation.query_deleted": "settings.eventEvaluationQueryDeleted",
   "evaluation.run_completed": "settings.eventEvaluationRunCompleted",
+  "appointment.created": "settings.eventAppointmentCreated",
+  "appointment.updated": "settings.eventAppointmentUpdated",
+  "maintenance_reminder.created": "settings.eventReminderCreated",
+  "maintenance_reminder.updated": "settings.eventReminderUpdated",
 };
 
 export function SettingsPage({ user, onUserUpdated, notify, reportError }: Props) {

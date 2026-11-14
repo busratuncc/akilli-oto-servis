@@ -32,6 +32,12 @@ class Vehicle(Base):
     work_orders: Mapped[list["WorkOrder"]] = relationship(
         back_populates="vehicle", cascade="all, delete-orphan"
     )
+    appointments: Mapped[list["Appointment"]] = relationship(
+        back_populates="vehicle", cascade="all, delete-orphan"
+    )
+    maintenance_reminders: Mapped[list["MaintenanceReminder"]] = relationship(
+        back_populates="vehicle", cascade="all, delete-orphan"
+    )
     owner: Mapped["User | None"] = relationship(back_populates="vehicles")
 
 
@@ -137,6 +143,55 @@ class AuditEvent(Base):
     )
 
     user: Mapped[User] = relationship(back_populates="audit_events")
+
+
+class Appointment(Base):
+    __tablename__ = "appointments"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    owner_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    vehicle_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("vehicles.id", ondelete="CASCADE"), index=True
+    )
+    scheduled_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    scheduled_end: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    service_type: Mapped[str] = mapped_column(String(120))
+    customer_complaint: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(24), default="scheduled", index=True)
+    assigned_technician: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    vehicle: Mapped[Vehicle] = relationship(back_populates="appointments")
+
+
+class MaintenanceReminder(Base):
+    __tablename__ = "maintenance_reminders"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    owner_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    vehicle_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("vehicles.id", ondelete="CASCADE"), index=True
+    )
+    title: Mapped[str] = mapped_column(String(160))
+    due_date: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
+    due_mileage: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    status: Mapped[str] = mapped_column(String(24), default="pending", index=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    vehicle: Mapped[Vehicle] = relationship(back_populates="maintenance_reminders")
 
 
 class Invoice(Base):

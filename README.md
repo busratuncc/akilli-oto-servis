@@ -2,7 +2,7 @@
 
 Türkçe servis anlatımlarını yapılandırılmış iş emirlerine dönüştürmek, atölyedeki servis sürecini izlemek, OBD-II kodlarını kaydetmek ve geçmiş vakalar arasında arama yapmak için geliştirilen tez uygulaması.
 
-## Mevcut uygulama (v1.0)
+## Mevcut uygulama (v1.1)
 
 - Atölye özetlerini ve iş emri dağılımını gösteren dashboard
 - Anonim kodla araç kaydı ve araç servis geçmişi
@@ -42,6 +42,11 @@ Türkçe servis anlatımlarını yapılandırılmış iş emirlerine dönüştü
 - Stok maliyet değeri, stokta olmayan ve kritik seviyedeki parça özetleri
 - Faturada stoktan parça seçimi, otomatik açıklama/fiyat doldurma ve güvenli stok düşümü
 - Yetersiz veya eksi stok girişimini engelleyen sunucu taraflı kontrol ve işlem kilidi
+- Haftalık randevu takvimi, servis türü ve randevu durum yönetimi
+- Aynı ustaya çakışan aktif randevu atanmasını engelleyen sunucu taraflı kontrol
+- Tarih ve/veya araç kilometresiyle çalışan bakım hatırlatmaları
+- Geciken ve yaklaşan bakımları önceliklendiren operasyon özeti
+- Müşteri adı veya telefonu tutmadan anonim araç koduna bağlı randevu mimarisi
 - Masaüstü ve mobil ekranlara uyumlu React arayüzü
 
 ## Başlangıç kapsamı
@@ -78,7 +83,15 @@ Windows için aynı işlemi yapan yardımcı komut:
 5. Sağlık kontrolü: http://localhost:8000/api/health
 6. Geliştirme e-posta kutusu (Mailpit): http://localhost:8026
 
-Uygulama menüsü sekiz bölümden oluşur: **Gösterge paneli**, **Araçlar**, **İş emirleri**, **Stok**, **Finans**, **Akıllı asistan**, **AI deneyleri** ve **Hesap ayarları**.
+Uygulama menüsü dokuz bölümden oluşur: **Gösterge paneli**, **Araçlar**, **İş emirleri**, **Randevu & bakım**, **Stok**, **Finans**, **Akıllı asistan**, **AI deneyleri** ve **Hesap ayarları**.
+
+### Randevu ve bakım planı
+
+**Randevu & bakım** ekranı haftayı pazartesiden pazara sütunlar halinde gösterir. Her randevu anonim araç kodu, servis türü, başlangıç/bitiş zamanı ve isteğe bağlı usta atamasıyla kaydedilir. Planlanan, onaylanan, araç geldi, serviste, tamamlandı, iptal ve gelmedi durumları takvim üzerinden değiştirilebilir.
+
+Aynı usta adına birbiriyle kesişen iki aktif zaman aralığı girilirse API ikinci randevuyu reddeder. Tamamlanan, iptal edilen veya gelmedi durumundaki randevular kapasiteyi bloke etmez. Bu kontrol yalnızca arayüzde değil veritabanına yazmadan önce sunucuda yapılır.
+
+Bakım hatırlatmaları bir hedef tarih, hedef kilometre veya ikisi birlikte kullanılarak oluşturulur. Sistem aracın kayıtlı güncel kilometresini hedefle karşılaştırır; hedefe 500 km veya 7 gün kaldığında “yaklaşıyor”, hedef geçildiğinde “gecikti” durumunu üretir. Randevu ve hatırlatma değişiklikleri hesap bazında izole edilir ve denetim geçmişine yazılır. Gizlilik yaklaşımı gereği bu modülde müşteri adı, telefon veya açık plaka tutulmaz.
 
 ### AI deney ve değerlendirme laboratuvarı
 

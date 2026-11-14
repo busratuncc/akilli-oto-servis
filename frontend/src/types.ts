@@ -341,3 +341,51 @@ export type EvidenceResponse = {
   evidence: CaseSearchResult[];
 };
 
+export type AppointmentStatus =
+  | "scheduled"
+  | "confirmed"
+  | "checked_in"
+  | "in_service"
+  | "completed"
+  | "cancelled"
+  | "no_show";
+
+export type Appointment = {
+  id: string;
+  vehicle_id: string;
+  scheduled_start: string;
+  scheduled_end: string;
+  service_type: string;
+  customer_complaint: string;
+  status: AppointmentStatus;
+  assigned_technician: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ReminderStatus = "pending" | "completed" | "dismissed";
+export type ReminderDueState = "overdue" | "due_soon" | "upcoming" | "completed" | "dismissed";
+
+export type MaintenanceReminder = {
+  id: string;
+  vehicle_id: string;
+  title: string;
+  due_date: string | null;
+  due_mileage: number | null;
+  status: ReminderStatus;
+  due_state: ReminderDueState;
+  notes: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ScheduleSummary = {
+  today_appointments: number;
+  upcoming_appointments: number;
+  active_appointments: number;
+  overdue_reminders: number;
+  due_soon_reminders: number;
+};
+
