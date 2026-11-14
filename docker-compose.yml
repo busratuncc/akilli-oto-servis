@@ -46,6 +46,7 @@ services:
       SMTP_STARTTLS: ${SMTP_STARTTLS:-false}
       MAIL_FROM: ${MAIL_FROM:-Akıllı Oto Servis <noreply@akilli-servis.local>}
       MAILPIT_PUBLIC_URL: ${MAILPIT_PUBLIC_URL:-http://localhost:8026}
+      FRONTEND_PUBLIC_URL: ${FRONTEND_PUBLIC_URL:-http://localhost:5174}
     ports:
       - "8000:8000"
     volumes:

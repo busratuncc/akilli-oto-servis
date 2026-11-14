@@ -50,6 +50,12 @@ const EVENT_LABEL_KEYS: Record<string, string> = {
   "maintenance_reminder.updated": "settings.eventReminderUpdated",
   "inspection.created": "settings.eventInspectionCreated",
   "inspection.updated": "settings.eventInspectionUpdated",
+  "estimate.created": "settings.eventEstimateCreated",
+  "estimate.updated": "settings.eventEstimateUpdated",
+  "estimate.sent": "settings.eventEstimateSent",
+  "estimate.approved": "settings.eventEstimateApproved",
+  "estimate.rejected": "settings.eventEstimateRejected",
+  "estimate.converted": "settings.eventEstimateConverted",
 };
 
 export function SettingsPage({ user, onUserUpdated, notify, reportError }: Props) {

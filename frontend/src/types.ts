@@ -424,3 +424,67 @@ export type InspectionReport = {
   unresolved_critical_count: number;
 };
 
+export type EstimateStatus = "draft" | "sent" | "approved" | "rejected" | "expired" | "converted";
+
+export type EstimateLine = {
+  id: string;
+  inventory_part_id: string | null;
+  item_type: InvoiceItemType;
+  description: string;
+  quantity: string;
+  unit_price: string;
+  line_total: string;
+  position: number;
+};
+
+export type Estimate = {
+  id: string;
+  work_order_id: string;
+  converted_invoice_id: string | null;
+  estimate_number: string;
+  version: number;
+  status: EstimateStatus;
+  currency: string;
+  subtotal: string;
+  discount_amount: string;
+  tax_rate: string;
+  tax_amount: string;
+  total_amount: string;
+  notes: string | null;
+  valid_until: string;
+  approval_expires_at: string | null;
+  responded_at: string | null;
+  response_note: string | null;
+  created_at: string;
+  updated_at: string;
+  line_items: EstimateLine[];
+};
+
+export type EstimateSendResponse = {
+  estimate: Estimate;
+  approval_url: string;
+  expires_at: string;
+};
+
+export type PublicEstimate = {
+  id: string;
+  estimate_number: string;
+  status: EstimateStatus;
+  workshop_name: string;
+  vehicle_code: string;
+  vehicle_description: string;
+  complaint: string;
+  currency: string;
+  subtotal: string;
+  discount_amount: string;
+  tax_rate: string;
+  tax_amount: string;
+  total_amount: string;
+  notes: string | null;
+  valid_until: string;
+  approval_expires_at: string | null;
+  responded_at: string | null;
+  response_note: string | null;
+  line_items: EstimateLine[];
+};
+

@@ -70,6 +70,9 @@ class WorkOrder(Base):
     inspection: Mapped["InspectionReport | None"] = relationship(
         back_populates="work_order", cascade="all, delete-orphan", uselist=False
     )
+    estimates: Mapped[list["Estimate"]] = relationship(
+        back_populates="work_order", cascade="all, delete-orphan"
+    )
 
 
 class DtcCode(Base):
@@ -247,6 +250,71 @@ class InspectionItem(Base):
     position: Mapped[int] = mapped_column(Integer)
 
     report: Mapped[InspectionReport] = relationship(back_populates="items")
+
+
+class Estimate(Base):
+    __tablename__ = "estimates"
+    __table_args__ = (
+        UniqueConstraint("work_order_id", "version", name="uq_estimates_work_order_version"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    owner_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    work_order_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("work_orders.id", ondelete="CASCADE"), index=True
+    )
+    converted_invoice_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("invoices.id", ondelete="SET NULL"),
+        nullable=True,
+        unique=True,
+    )
+    estimate_number: Mapped[str] = mapped_column(String(40), unique=True, index=True)
+    version: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(24), default="draft", index=True)
+    currency: Mapped[str] = mapped_column(String(3), default="TRY")
+    subtotal: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+    discount_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
+    tax_rate: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=20)
+    tax_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0)
+    total_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    valid_until: Mapped[date] = mapped_column(Date, index=True)
+    approval_token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True)
+    approval_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    responded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    response_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    work_order: Mapped[WorkOrder] = relationship(back_populates="estimates")
+    line_items: Mapped[list["EstimateLineItem"]] = relationship(
+        back_populates="estimate", cascade="all, delete-orphan", order_by="EstimateLineItem.position"
+    )
+
+
+class EstimateLineItem(Base):
+    __tablename__ = "estimate_line_items"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    estimate_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("estimates.id", ondelete="CASCADE"), index=True
+    )
+    inventory_part_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("inventory_parts.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    item_type: Mapped[str] = mapped_column(String(20))
+    description: Mapped[str] = mapped_column(String(240))
+    quantity: Mapped[Decimal] = mapped_column(Numeric(10, 2))
+    unit_price: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+    line_total: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+    position: Mapped[int] = mapped_column(Integer)
+
+    estimate: Mapped[Estimate] = relationship(back_populates="line_items")
 
 
 class Invoice(Base):

@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     smtp_starttls: bool = False
     mail_from: str = "Akıllı Oto Servis <noreply@akilli-servis.local>"
     mailpit_public_url: str = "http://localhost:8026"
+    frontend_public_url: str = "http://localhost:5174"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

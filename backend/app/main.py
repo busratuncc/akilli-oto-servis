@@ -11,7 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 from starlette.concurrency import run_in_threadpool
 
-from app import auth, evaluation, finance, inspection, inventory, ml, models, schemas, scheduling, services, test_bank
+from app import auth, estimate, evaluation, finance, inspection, inventory, ml, models, schemas, scheduling, services, test_bank
 from app.config import settings
 from app.database import SessionLocal, get_db
 
@@ -22,6 +22,7 @@ PUBLIC_API_PATHS = {
     f"{settings.api_prefix}/auth/request-otp",
     f"{settings.api_prefix}/auth/verify",
 }
+PUBLIC_API_PREFIXES = (f"{settings.api_prefix}/public/estimates/",)
 
 
 @app.middleware("http")
@@ -30,6 +31,7 @@ async def require_authenticated_session(request: Request, call_next):
         request.method == "OPTIONS"
         or not request.url.path.startswith(settings.api_prefix)
         or request.url.path in PUBLIC_API_PATHS
+        or any(request.url.path.startswith(prefix) for prefix in PUBLIC_API_PREFIXES)
     ):
         return await call_next(request)
 
@@ -249,6 +251,296 @@ def inspection_read(report: models.InspectionReport) -> schemas.InspectionReport
         items=[schemas.InspectionItemRead.model_validate(item) for item in report.items],
         **summary,
     )
+
+
+def get_estimate_or_404(
+    estimate_id: uuid.UUID,
+    user_id: uuid.UUID,
+    db: Session,
+    *,
+    lock_for_update: bool = False,
+) -> models.Estimate:
+    query = (
+        select(models.Estimate)
+        .options(
+            selectinload(models.Estimate.line_items),
+            selectinload(models.Estimate.work_order).selectinload(models.WorkOrder.vehicle),
+        )
+        .where(
+            models.Estimate.id == estimate_id,
+            models.Estimate.owner_id == user_id,
+        )
+    )
+    if lock_for_update:
+        query = query.with_for_update()
+    estimate_record = db.scalar(query)
+    if estimate_record is None:
+        raise HTTPException(status_code=404, detail="Teklif bulunamadı")
+    return estimate_record
+
+
+def estimate_read(estimate_record: models.Estimate) -> schemas.EstimateRead:
+    return schemas.EstimateRead(
+        id=estimate_record.id,
+        work_order_id=estimate_record.work_order_id,
+        converted_invoice_id=estimate_record.converted_invoice_id,
+        estimate_number=estimate_record.estimate_number,
+        version=estimate_record.version,
+        status=estimate_record.status,
+        currency=estimate_record.currency,
+        subtotal=estimate_record.subtotal,
+        discount_amount=estimate_record.discount_amount,
+        tax_rate=estimate_record.tax_rate,
+        tax_amount=estimate_record.tax_amount,
+        total_amount=estimate_record.total_amount,
+        notes=estimate_record.notes,
+        valid_until=estimate_record.valid_until,
+        approval_expires_at=estimate_record.approval_expires_at,
+        responded_at=estimate_record.responded_at,
+        response_note=estimate_record.response_note,
+        created_at=estimate_record.created_at,
+        updated_at=estimate_record.updated_at,
+        line_items=[
+            schemas.EstimateLineRead.model_validate(item) for item in estimate_record.line_items
+        ],
+    )
+
+
+def public_estimate_or_404(
+    estimate_id: uuid.UUID,
+    token: str,
+    db: Session,
+    *,
+    lock_for_update: bool = False,
+) -> models.Estimate:
+    query = (
+        select(models.Estimate)
+        .options(
+            selectinload(models.Estimate.line_items),
+            selectinload(models.Estimate.work_order).selectinload(models.WorkOrder.vehicle),
+        )
+        .where(models.Estimate.id == estimate_id)
+    )
+    if lock_for_update:
+        query = query.with_for_update()
+    estimate_record = db.scalar(query)
+    if estimate_record is None or not estimate.token_matches(
+        token, estimate_record.approval_token_hash
+    ):
+        raise HTTPException(status_code=404, detail="Teklif bağlantısı geçersiz")
+    return estimate_record
+
+
+def public_estimate_read(
+    estimate_record: models.Estimate,
+    workshop_name: str,
+) -> schemas.EstimatePublicRead:
+    vehicle = estimate_record.work_order.vehicle
+    vehicle_description = " ".join(
+        part for part in [vehicle.brand, vehicle.model, str(vehicle.model_year or "")] if part
+    )
+    return schemas.EstimatePublicRead(
+        id=estimate_record.id,
+        estimate_number=estimate_record.estimate_number,
+        status=estimate_record.status,
+        workshop_name=workshop_name,
+        vehicle_code=vehicle.anonymous_code,
+        vehicle_description=vehicle_description,
+        complaint=estimate_record.work_order.customer_complaint,
+        currency=estimate_record.currency,
+        subtotal=estimate_record.subtotal,
+        discount_amount=estimate_record.discount_amount,
+        tax_rate=estimate_record.tax_rate,
+        tax_amount=estimate_record.tax_amount,
+        total_amount=estimate_record.total_amount,
+        notes=estimate_record.notes,
+        valid_until=estimate_record.valid_until,
+        approval_expires_at=estimate_record.approval_expires_at,
+        responded_at=estimate_record.responded_at,
+        response_note=estimate_record.response_note,
+        line_items=[
+            schemas.EstimateLineRead.model_validate(item) for item in estimate_record.line_items
+        ],
+    )
+
+
+def build_invoice_record(
+    *,
+    work_order: models.WorkOrder,
+    payload: schemas.InvoiceCreate,
+    user_id: uuid.UUID,
+    db: Session,
+) -> tuple[models.Invoice, int]:
+    if db.scalar(select(models.Invoice.id).where(models.Invoice.work_order_id == work_order.id)):
+        raise HTTPException(status_code=409, detail="Bu iş emri için zaten fatura oluşturulmuş")
+
+    part_requirements: dict[uuid.UUID, Decimal] = {}
+    for item in payload.line_items:
+        if item.inventory_part_id is None:
+            continue
+        if item.item_type != "part":
+            raise HTTPException(
+                status_code=422,
+                detail="Stok parçası yalnızca parça türündeki fatura kalemine bağlanabilir",
+            )
+        part_requirements[item.inventory_part_id] = (
+            part_requirements.get(item.inventory_part_id, Decimal("0")) + item.quantity
+        )
+
+    stock_parts: dict[uuid.UUID, models.InventoryPart] = {}
+    stock_updates: dict[uuid.UUID, tuple[Decimal, Decimal]] = {}
+    if part_requirements:
+        locked_parts = list(
+            db.scalars(
+                select(models.InventoryPart)
+                .where(
+                    models.InventoryPart.owner_id == user_id,
+                    models.InventoryPart.active.is_(True),
+                    models.InventoryPart.id.in_(part_requirements),
+                )
+                .with_for_update()
+            ).all()
+        )
+        stock_parts = {part.id: part for part in locked_parts}
+        if len(stock_parts) != len(part_requirements):
+            raise HTTPException(status_code=404, detail="Faturadaki stok parçalarından biri bulunamadı")
+        for part_id, required in part_requirements.items():
+            part = stock_parts[part_id]
+            try:
+                stock_updates[part_id] = inventory.apply_movement(
+                    part.stock_quantity,
+                    "invoice_sale",
+                    required,
+                )
+            except inventory.InsufficientStockError as exc:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"{part.name} için stok yetersiz. "
+                        f"Gerekli: {required}, mevcut: {part.stock_quantity} {part.unit}"
+                    ),
+                ) from exc
+
+    try:
+        line_totals, subtotal, tax_amount, total_amount = finance.calculate_invoice(
+            payload.line_items,
+            payload.discount_amount,
+            payload.tax_rate,
+        )
+    except finance.FinanceValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    invoice_id = uuid.uuid4()
+    invoice = models.Invoice(
+        id=invoice_id,
+        owner_id=user_id,
+        work_order_id=work_order.id,
+        invoice_number=f"FTR-{datetime.now(timezone.utc).year}-{invoice_id.hex[:8].upper()}",
+        subtotal=subtotal,
+        discount_amount=finance.money(payload.discount_amount),
+        tax_rate=payload.tax_rate,
+        tax_amount=tax_amount,
+        total_amount=total_amount,
+        notes=payload.notes,
+        due_date=payload.due_date,
+        line_items=[
+            models.InvoiceLineItem(
+                item_type=item.item_type,
+                inventory_part_id=item.inventory_part_id,
+                description=item.description.strip(),
+                quantity=item.quantity,
+                unit_price=item.unit_price,
+                line_total=line_totals[index],
+            )
+            for index, item in enumerate(payload.line_items)
+        ],
+    )
+    db.add(invoice)
+    for part_id, (delta, balance) in stock_updates.items():
+        part = stock_parts[part_id]
+        part.stock_quantity = balance
+        db.add(
+            models.StockMovement(
+                part_id=part.id,
+                created_by_id=user_id,
+                movement_type="invoice_sale",
+                quantity_delta=delta,
+                balance_after=balance,
+                reference_type="invoice",
+                reference_id=invoice.id,
+                notes=invoice.invoice_number,
+            )
+        )
+    return invoice, len(stock_updates)
+
+
+def validate_estimate_payload(
+    payload: schemas.EstimateCreate,
+    user_id: uuid.UUID,
+    db: Session,
+) -> tuple[list[Decimal], Decimal, Decimal, Decimal]:
+    if payload.valid_until < scheduling.workshop_today():
+        raise HTTPException(status_code=422, detail="Teklif geçerlilik tarihi geçmişte olamaz")
+    part_ids: set[uuid.UUID] = set()
+    for item in payload.line_items:
+        if item.inventory_part_id is None:
+            continue
+        if item.item_type != "part":
+            raise HTTPException(
+                status_code=422,
+                detail="Stok kartı yalnızca parça türündeki teklif kalemine bağlanabilir",
+            )
+        part_ids.add(item.inventory_part_id)
+    if part_ids:
+        owned_part_ids = set(
+            db.scalars(
+                select(models.InventoryPart.id).where(
+                    models.InventoryPart.owner_id == user_id,
+                    models.InventoryPart.active.is_(True),
+                    models.InventoryPart.id.in_(part_ids),
+                )
+            ).all()
+        )
+        if owned_part_ids != part_ids:
+            raise HTTPException(status_code=404, detail="Teklif kalemlerindeki stok parçası bulunamadı")
+    try:
+        return finance.calculate_invoice(
+            payload.line_items,
+            payload.discount_amount,
+            payload.tax_rate,
+        )
+    except finance.FinanceValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+def apply_estimate_payload(
+    estimate_record: models.Estimate,
+    payload: schemas.EstimateCreate,
+    user_id: uuid.UUID,
+    db: Session,
+) -> None:
+    line_totals, subtotal, tax_amount, total_amount = validate_estimate_payload(
+        payload, user_id, db
+    )
+    estimate_record.subtotal = subtotal
+    estimate_record.discount_amount = finance.money(payload.discount_amount)
+    estimate_record.tax_rate = payload.tax_rate
+    estimate_record.tax_amount = tax_amount
+    estimate_record.total_amount = total_amount
+    estimate_record.notes = payload.notes.strip() if payload.notes else None
+    estimate_record.valid_until = payload.valid_until
+    estimate_record.line_items = [
+        models.EstimateLineItem(
+            inventory_part_id=item.inventory_part_id,
+            item_type=item.item_type,
+            description=item.description.strip(),
+            quantity=item.quantity,
+            unit_price=item.unit_price,
+            line_total=line_totals[index],
+            position=index + 1,
+        )
+        for index, item in enumerate(payload.line_items)
+    ]
 
 
 def get_card_challenge_or_404(
@@ -867,106 +1159,12 @@ def create_invoice(
     db: Session = Depends(get_db),
 ) -> schemas.InvoiceRead:
     work_order = get_work_order_or_404(work_order_id, request.state.user.id, db)
-    if db.scalar(select(models.Invoice.id).where(models.Invoice.work_order_id == work_order.id)):
-        raise HTTPException(status_code=409, detail="Bu iş emri için zaten fatura oluşturulmuş")
-
-    part_requirements: dict[uuid.UUID, Decimal] = {}
-    for item in payload.line_items:
-        if item.inventory_part_id is None:
-            continue
-        if item.item_type != "part":
-            raise HTTPException(
-                status_code=422,
-                detail="Stok parçası yalnızca parça türündeki fatura kalemine bağlanabilir",
-            )
-        part_requirements[item.inventory_part_id] = (
-            part_requirements.get(item.inventory_part_id, Decimal("0")) + item.quantity
-        )
-
-    stock_parts: dict[uuid.UUID, models.InventoryPart] = {}
-    stock_updates: dict[uuid.UUID, tuple[Decimal, Decimal]] = {}
-    if part_requirements:
-        locked_parts = list(
-            db.scalars(
-                select(models.InventoryPart)
-                .where(
-                    models.InventoryPart.owner_id == request.state.user.id,
-                    models.InventoryPart.active.is_(True),
-                    models.InventoryPart.id.in_(part_requirements),
-                )
-                .with_for_update()
-            ).all()
-        )
-        stock_parts = {part.id: part for part in locked_parts}
-        if len(stock_parts) != len(part_requirements):
-            raise HTTPException(status_code=404, detail="Faturadaki stok parçalarından biri bulunamadı")
-        for part_id, required in part_requirements.items():
-            part = stock_parts[part_id]
-            try:
-                stock_updates[part_id] = inventory.apply_movement(
-                    part.stock_quantity,
-                    "invoice_sale",
-                    required,
-                )
-            except inventory.InsufficientStockError as exc:
-                raise HTTPException(
-                    status_code=409,
-                    detail=(
-                        f"{part.name} için stok yetersiz. "
-                        f"Gerekli: {required}, mevcut: {part.stock_quantity} {part.unit}"
-                    ),
-                ) from exc
-
-    try:
-        line_totals, subtotal, tax_amount, total_amount = finance.calculate_invoice(
-            payload.line_items,
-            payload.discount_amount,
-            payload.tax_rate,
-        )
-    except finance.FinanceValidationError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-
-    invoice_id = uuid.uuid4()
-    invoice = models.Invoice(
-        id=invoice_id,
-        owner_id=request.state.user.id,
-        work_order_id=work_order.id,
-        invoice_number=f"FTR-{datetime.now(timezone.utc).year}-{invoice_id.hex[:8].upper()}",
-        subtotal=subtotal,
-        discount_amount=finance.money(payload.discount_amount),
-        tax_rate=payload.tax_rate,
-        tax_amount=tax_amount,
-        total_amount=total_amount,
-        notes=payload.notes,
-        due_date=payload.due_date,
-        line_items=[
-            models.InvoiceLineItem(
-                item_type=item.item_type,
-                inventory_part_id=item.inventory_part_id,
-                description=item.description.strip(),
-                quantity=item.quantity,
-                unit_price=item.unit_price,
-                line_total=line_totals[index],
-            )
-            for index, item in enumerate(payload.line_items)
-        ],
+    invoice, stock_part_count = build_invoice_record(
+        work_order=work_order,
+        payload=payload,
+        user_id=request.state.user.id,
+        db=db,
     )
-    db.add(invoice)
-    for part_id, (delta, balance) in stock_updates.items():
-        part = stock_parts[part_id]
-        part.stock_quantity = balance
-        db.add(
-            models.StockMovement(
-                part_id=part.id,
-                created_by_id=request.state.user.id,
-                movement_type="invoice_sale",
-                quantity_delta=delta,
-                balance_after=balance,
-                reference_type="invoice",
-                reference_id=invoice.id,
-                notes=invoice.invoice_number,
-            )
-        )
     try:
         db.flush()
         auth.add_audit_event(
@@ -977,8 +1175,8 @@ def create_invoice(
             entity_id=invoice.id,
             event_data={
                 "invoice_number": invoice.invoice_number,
-                "total": str(total_amount),
-                "stock_part_count": len(stock_updates),
+                "total": str(invoice.total_amount),
+                "stock_part_count": stock_part_count,
             },
         )
         db.commit()
@@ -2134,4 +2332,347 @@ def update_inspection_report(
     db.commit()
     db.refresh(report)
     return inspection_read(report)
+
+
+@app.post(
+    f"{settings.api_prefix}/work-orders/{{work_order_id}}/estimates",
+    response_model=schemas.EstimateRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_estimate(
+    work_order_id: uuid.UUID,
+    payload: schemas.EstimateCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> schemas.EstimateRead:
+    work_order = get_work_order_or_404(work_order_id, request.state.user.id, db)
+    if db.scalar(select(models.Invoice.id).where(models.Invoice.work_order_id == work_order.id)):
+        raise HTTPException(status_code=409, detail="Faturası oluşturulmuş iş emrine teklif eklenemez")
+    version = (
+        db.scalar(
+            select(func.max(models.Estimate.version)).where(
+                models.Estimate.work_order_id == work_order.id
+            )
+        )
+        or 0
+    ) + 1
+    estimate_id = uuid.uuid4()
+    estimate_record = models.Estimate(
+        id=estimate_id,
+        owner_id=request.state.user.id,
+        work_order_id=work_order.id,
+        estimate_number=(
+            f"TKL-{datetime.now(timezone.utc).year}-{estimate_id.hex[:8].upper()}-V{version}"
+        ),
+        version=version,
+        subtotal=Decimal("0"),
+        discount_amount=Decimal("0"),
+        tax_rate=payload.tax_rate,
+        tax_amount=Decimal("0"),
+        total_amount=Decimal("0"),
+        valid_until=payload.valid_until,
+    )
+    apply_estimate_payload(estimate_record, payload, request.state.user.id, db)
+    db.add(estimate_record)
+    try:
+        db.flush()
+        auth.add_audit_event(
+            db,
+            request.state.user.id,
+            "estimate.created",
+            entity_type="estimate",
+            entity_id=estimate_record.id,
+            event_data={
+                "work_order_id": str(work_order.id),
+                "estimate_number": estimate_record.estimate_number,
+                "version": version,
+                "total": str(estimate_record.total_amount),
+            },
+        )
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Teklif sürümü oluşturulamadı; yeniden deneyin") from exc
+    return estimate_read(get_estimate_or_404(estimate_record.id, request.state.user.id, db))
+
+
+@app.get(f"{settings.api_prefix}/estimates", response_model=list[schemas.EstimateRead])
+def list_estimates(
+    request: Request,
+    db: Session = Depends(get_db),
+) -> list[schemas.EstimateRead]:
+    records = list(
+        db.scalars(
+            select(models.Estimate)
+            .options(selectinload(models.Estimate.line_items))
+            .where(models.Estimate.owner_id == request.state.user.id)
+            .order_by(models.Estimate.created_at.desc())
+        ).all()
+    )
+    changed = False
+    for record in records:
+        if record.status == "sent" and estimate.is_expired(record.approval_expires_at):
+            record.status = "expired"
+            changed = True
+    if changed:
+        db.commit()
+    return [estimate_read(record) for record in records]
+
+
+@app.patch(
+    f"{settings.api_prefix}/estimates/{{estimate_id}}",
+    response_model=schemas.EstimateRead,
+)
+def update_estimate(
+    estimate_id: uuid.UUID,
+    payload: schemas.EstimateUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> schemas.EstimateRead:
+    estimate_record = get_estimate_or_404(estimate_id, request.state.user.id, db)
+    if estimate_record.status != "draft":
+        raise HTTPException(status_code=409, detail="Yalnızca taslak teklifler düzenlenebilir")
+    changes = payload.model_dump(exclude_unset=True)
+    required_fields = {"line_items", "discount_amount", "tax_rate", "valid_until"}
+    if any(field in changes and changes[field] is None for field in required_fields):
+        raise HTTPException(status_code=422, detail="Zorunlu teklif alanları boş bırakılamaz")
+    merged = schemas.EstimateCreate(
+        line_items=changes.get(
+            "line_items",
+            [
+                schemas.InvoiceLineCreate(
+                    item_type=item.item_type,
+                    inventory_part_id=item.inventory_part_id,
+                    description=item.description,
+                    quantity=item.quantity,
+                    unit_price=item.unit_price,
+                )
+                for item in estimate_record.line_items
+            ],
+        ),
+        discount_amount=changes.get("discount_amount", estimate_record.discount_amount),
+        tax_rate=changes.get("tax_rate", estimate_record.tax_rate),
+        notes=changes.get("notes", estimate_record.notes),
+        valid_until=changes.get("valid_until", estimate_record.valid_until),
+    )
+    apply_estimate_payload(estimate_record, merged, request.state.user.id, db)
+    auth.add_audit_event(
+        db,
+        request.state.user.id,
+        "estimate.updated",
+        entity_type="estimate",
+        entity_id=estimate_record.id,
+        event_data={"fields": sorted(payload.model_fields_set), "total": str(estimate_record.total_amount)},
+    )
+    db.commit()
+    return estimate_read(get_estimate_or_404(estimate_record.id, request.state.user.id, db))
+
+
+@app.post(
+    f"{settings.api_prefix}/estimates/{{estimate_id}}/send",
+    response_model=schemas.EstimateSendResponse,
+)
+def send_estimate_for_approval(
+    estimate_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> schemas.EstimateSendResponse:
+    estimate_record = get_estimate_or_404(
+        estimate_id, request.state.user.id, db, lock_for_update=True
+    )
+    if estimate_record.status not in {"draft", "sent", "rejected", "expired"}:
+        raise HTTPException(status_code=409, detail="Bu teklif onaya gönderilemez")
+    expires_at = estimate.end_of_valid_day(estimate_record.valid_until)
+    if estimate.is_expired(expires_at):
+        raise HTTPException(status_code=409, detail="Geçerlilik tarihi geçmiş teklif gönderilemez")
+
+    other_active = list(
+        db.scalars(
+            select(models.Estimate).where(
+                models.Estimate.work_order_id == estimate_record.work_order_id,
+                models.Estimate.id != estimate_record.id,
+                models.Estimate.status == "sent",
+            )
+        ).all()
+    )
+    for other in other_active:
+        other.status = "expired"
+        other.approval_token_hash = None
+
+    raw_token = estimate.new_approval_token()
+    estimate_record.approval_token_hash = estimate.token_hash(raw_token)
+    estimate_record.approval_expires_at = expires_at
+    estimate_record.status = "sent"
+    estimate_record.responded_at = None
+    estimate_record.response_note = None
+    auth.add_audit_event(
+        db,
+        request.state.user.id,
+        "estimate.sent",
+        entity_type="estimate",
+        entity_id=estimate_record.id,
+        event_data={
+            "estimate_number": estimate_record.estimate_number,
+            "expires_at": expires_at.isoformat(),
+        },
+    )
+    db.commit()
+    refreshed = get_estimate_or_404(estimate_record.id, request.state.user.id, db)
+    approval_url = (
+        f"{settings.frontend_public_url.rstrip('/')}/estimate-approval/"
+        f"{estimate_record.id}?token={raw_token}"
+    )
+    return schemas.EstimateSendResponse(
+        estimate=estimate_read(refreshed),
+        approval_url=approval_url,
+        expires_at=expires_at,
+    )
+
+
+@app.post(
+    f"{settings.api_prefix}/public/estimates/{{estimate_id}}/details",
+    response_model=schemas.EstimatePublicRead,
+)
+def public_estimate_details(
+    estimate_id: uuid.UUID,
+    payload: schemas.EstimatePublicAccess,
+    db: Session = Depends(get_db),
+) -> schemas.EstimatePublicRead:
+    estimate_record = public_estimate_or_404(estimate_id, payload.token, db)
+    if estimate_record.status == "sent" and estimate.is_expired(estimate_record.approval_expires_at):
+        estimate_record.status = "expired"
+        db.commit()
+    workshop_name = db.scalar(
+        select(models.User.workshop_name).where(models.User.id == estimate_record.owner_id)
+    ) or "Akıllı Oto Servis"
+    return public_estimate_read(estimate_record, workshop_name)
+
+
+@app.post(
+    f"{settings.api_prefix}/public/estimates/{{estimate_id}}/decision",
+    response_model=schemas.EstimatePublicRead,
+)
+def public_estimate_decision(
+    estimate_id: uuid.UUID,
+    payload: schemas.EstimatePublicDecision,
+    db: Session = Depends(get_db),
+) -> schemas.EstimatePublicRead:
+    estimate_record = public_estimate_or_404(
+        estimate_id, payload.token, db, lock_for_update=True
+    )
+    if estimate.is_expired(estimate_record.approval_expires_at):
+        if estimate_record.status == "sent":
+            estimate_record.status = "expired"
+            db.commit()
+        raise HTTPException(status_code=410, detail="Teklif bağlantısının süresi dolmuş")
+    if estimate_record.status in {"approved", "rejected"}:
+        if estimate_record.status != payload.decision:
+            raise HTTPException(status_code=409, detail="Teklif için daha önce farklı bir karar verilmiş")
+    elif estimate_record.status != "sent":
+        raise HTTPException(status_code=409, detail="Bu teklif artık yanıtlanamaz")
+    else:
+        estimate_record.status = payload.decision
+        estimate_record.responded_at = datetime.now(timezone.utc)
+        estimate_record.response_note = payload.note.strip() if payload.note else None
+        other_active = list(
+            db.scalars(
+                select(models.Estimate).where(
+                    models.Estimate.work_order_id == estimate_record.work_order_id,
+                    models.Estimate.id != estimate_record.id,
+                    models.Estimate.status == "sent",
+                )
+            ).all()
+        )
+        for other in other_active:
+            other.status = "expired"
+            other.approval_token_hash = None
+        auth.add_audit_event(
+            db,
+            estimate_record.owner_id,
+            f"estimate.{payload.decision}",
+            entity_type="estimate",
+            entity_id=estimate_record.id,
+            event_data={"estimate_number": estimate_record.estimate_number},
+        )
+        db.commit()
+    workshop_name = db.scalar(
+        select(models.User.workshop_name).where(models.User.id == estimate_record.owner_id)
+    ) or "Akıllı Oto Servis"
+    return public_estimate_read(estimate_record, workshop_name)
+
+
+@app.post(
+    f"{settings.api_prefix}/estimates/{{estimate_id}}/invoice",
+    response_model=schemas.InvoiceRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def convert_estimate_to_invoice(
+    estimate_id: uuid.UUID,
+    payload: schemas.EstimateConvertRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> schemas.InvoiceRead:
+    estimate_record = get_estimate_or_404(
+        estimate_id, request.state.user.id, db, lock_for_update=True
+    )
+    if estimate_record.status != "approved":
+        raise HTTPException(status_code=409, detail="Yalnızca onaylanmış teklif faturaya dönüştürülebilir")
+    invoice_payload = schemas.InvoiceCreate(
+        line_items=[
+            schemas.InvoiceLineCreate(
+                item_type=item.item_type,
+                inventory_part_id=item.inventory_part_id,
+                description=item.description,
+                quantity=item.quantity,
+                unit_price=item.unit_price,
+            )
+            for item in estimate_record.line_items
+        ],
+        discount_amount=estimate_record.discount_amount,
+        tax_rate=estimate_record.tax_rate,
+        notes=(
+            f"{estimate_record.estimate_number} numaralı onaylı tekliften oluşturuldu."
+            + (f" {estimate_record.notes}" if estimate_record.notes else "")
+        ),
+        due_date=payload.due_date,
+    )
+    invoice, stock_part_count = build_invoice_record(
+        work_order=estimate_record.work_order,
+        payload=invoice_payload,
+        user_id=request.state.user.id,
+        db=db,
+    )
+    estimate_record.status = "converted"
+    estimate_record.converted_invoice_id = invoice.id
+    try:
+        db.flush()
+        auth.add_audit_event(
+            db,
+            request.state.user.id,
+            "estimate.converted",
+            entity_type="estimate",
+            entity_id=estimate_record.id,
+            event_data={
+                "estimate_number": estimate_record.estimate_number,
+                "invoice_id": str(invoice.id),
+            },
+        )
+        auth.add_audit_event(
+            db,
+            request.state.user.id,
+            "invoice.created",
+            entity_type="invoice",
+            entity_id=invoice.id,
+            event_data={
+                "invoice_number": invoice.invoice_number,
+                "total": str(invoice.total_amount),
+                "stock_part_count": stock_part_count,
+                "source_estimate_id": str(estimate_record.id),
+            },
+        )
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Bu iş emri için zaten fatura oluşturulmuş") from exc
+    return finance.to_read(get_invoice_or_404(invoice.id, request.state.user.id, db))
 

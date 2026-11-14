@@ -544,6 +544,7 @@ class DashboardSummary(BaseModel):
 InvoiceItemType = Literal["part", "labor", "other"]
 InvoiceStatus = Literal["issued", "partially_paid", "paid", "cancelled"]
 PaymentMethod = Literal["cash", "card_pos", "test_card", "bank_transfer", "other"]
+EstimateStatus = Literal["draft", "sent", "approved", "rejected", "expired", "converted"]
 
 
 class InvoiceLineCreate(BaseModel):
@@ -552,6 +553,99 @@ class InvoiceLineCreate(BaseModel):
     description: str = Field(min_length=2, max_length=240)
     quantity: Decimal = Field(gt=0, le=100_000, decimal_places=2)
     unit_price: Decimal = Field(ge=0, le=100_000_000, decimal_places=2)
+
+
+class EstimateCreate(BaseModel):
+    line_items: list[InvoiceLineCreate] = Field(min_length=1, max_length=100)
+    discount_amount: Decimal = Field(default=Decimal("0"), ge=0, le=100_000_000, decimal_places=2)
+    tax_rate: Decimal = Field(default=Decimal("20"), ge=0, le=100, decimal_places=2)
+    notes: str | None = Field(default=None, max_length=2000)
+    valid_until: date
+
+
+class EstimateUpdate(BaseModel):
+    line_items: list[InvoiceLineCreate] | None = Field(default=None, min_length=1, max_length=100)
+    discount_amount: Decimal | None = Field(default=None, ge=0, le=100_000_000, decimal_places=2)
+    tax_rate: Decimal | None = Field(default=None, ge=0, le=100, decimal_places=2)
+    notes: str | None = Field(default=None, max_length=2000)
+    valid_until: date | None = None
+
+
+class EstimateLineRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    inventory_part_id: uuid.UUID | None
+    item_type: InvoiceItemType
+    description: str
+    quantity: Decimal
+    unit_price: Decimal
+    line_total: Decimal
+    position: int
+
+
+class EstimateRead(BaseModel):
+    id: uuid.UUID
+    work_order_id: uuid.UUID
+    converted_invoice_id: uuid.UUID | None
+    estimate_number: str
+    version: int
+    status: EstimateStatus
+    currency: str
+    subtotal: Decimal
+    discount_amount: Decimal
+    tax_rate: Decimal
+    tax_amount: Decimal
+    total_amount: Decimal
+    notes: str | None
+    valid_until: date
+    approval_expires_at: datetime | None
+    responded_at: datetime | None
+    response_note: str | None
+    created_at: datetime
+    updated_at: datetime
+    line_items: list[EstimateLineRead]
+
+
+class EstimateSendResponse(BaseModel):
+    estimate: EstimateRead
+    approval_url: str
+    expires_at: datetime
+
+
+class EstimatePublicAccess(BaseModel):
+    token: str = Field(min_length=32, max_length=200)
+
+
+class EstimatePublicDecision(EstimatePublicAccess):
+    decision: Literal["approved", "rejected"]
+    note: str | None = Field(default=None, max_length=1000)
+
+
+class EstimatePublicRead(BaseModel):
+    id: uuid.UUID
+    estimate_number: str
+    status: EstimateStatus
+    workshop_name: str
+    vehicle_code: str
+    vehicle_description: str
+    complaint: str
+    currency: str
+    subtotal: Decimal
+    discount_amount: Decimal
+    tax_rate: Decimal
+    tax_amount: Decimal
+    total_amount: Decimal
+    notes: str | None
+    valid_until: date
+    approval_expires_at: datetime | None
+    responded_at: datetime | None
+    response_note: str | None
+    line_items: list[EstimateLineRead]
+
+
+class EstimateConvertRequest(BaseModel):
+    due_date: date | None = None
 
 
 class InvoiceCreate(BaseModel):

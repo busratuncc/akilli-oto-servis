@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { CheckCircle2, Languages, LogOut, Moon, RefreshCw, Server, Sun, X } from "lucide-react";
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 
@@ -13,8 +13,6 @@ import { CardPaymentPage } from "./pages/CardPaymentPage";
 import { InventoryPage } from "./pages/InventoryPage";
 import { TestBank3DPage } from "./pages/TestBank3DPage";
 import { EvaluationPage } from "./pages/EvaluationPage";
-import { AppointmentsPage } from "./pages/AppointmentsPage";
-import { InspectionsPage } from "./pages/InspectionsPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import type { IntakeDraft } from "./pages/WorkOrdersPage";
 import { WorkOrdersPage } from "./pages/WorkOrdersPage";
@@ -22,12 +20,18 @@ import { VehiclesPage } from "./pages/VehiclesPage";
 import { useTheme } from "./theme";
 import type { AuthUser, DashboardSummary, Vehicle, WorkOrder } from "./types";
 
+const AppointmentsPage = lazy(() => import("./pages/AppointmentsPage").then((module) => ({ default: module.AppointmentsPage })));
+const InspectionsPage = lazy(() => import("./pages/InspectionsPage").then((module) => ({ default: module.InspectionsPage })));
+const EstimatesPage = lazy(() => import("./pages/EstimatesPage").then((module) => ({ default: module.EstimatesPage })));
+const EstimateApprovalPage = lazy(() => import("./pages/EstimateApprovalPage").then((module) => ({ default: module.EstimateApprovalPage })));
+
 const PAGE_TITLE_KEYS: Record<string, string> = {
   "/": "nav.dashboard",
   "/vehicles": "nav.vehicles",
   "/work-orders": "nav.orders",
   "/appointments": "nav.appointments",
   "/inspections": "nav.inspections",
+  "/estimates": "nav.estimates",
   "/inventory": "nav.inventory",
   "/finance": "nav.finance",
   "/assistant": "nav.assistant",
@@ -140,6 +144,10 @@ function App() {
     }
   }
 
+  if (location.pathname.startsWith("/estimate-approval/")) {
+    return <Suspense fallback={<div className="auth-splash"><Server size={24} /><strong>{t("common.loading")}</strong></div>}><Routes><Route path="/estimate-approval/:estimateId" element={<EstimateApprovalPage />} /><Route path="*" element={<Navigate to="/" replace />} /></Routes></Suspense>;
+  }
+
   if (authLoading) {
     return <div className="auth-splash"><span className="splash-mark"><Server size={24} /></span><strong>{t("app.name")}</strong></div>;
   }
@@ -174,12 +182,13 @@ function App() {
           {error && <div className="toast error-toast"><X size={18} /><span>{error}</span><button onClick={() => setError("")}><X size={16} /></button></div>}
           {notice && <div className="toast success-toast"><CheckCircle2 size={18} /><span>{notice}</span><button onClick={() => setNotice("")}><X size={16} /></button></div>}
 
-          <Routes>
+          <Suspense fallback={<div className="loading-card">{t("common.loading")}</div>}><Routes>
             <Route path="/" element={<DashboardPage summary={summary} vehicleMap={vehicleMap} />} />
             <Route path="/vehicles" element={<VehiclesPage vehicles={vehicles} orders={orders} onChanged={refresh} notify={setNotice} reportError={setError} />} />
             <Route path="/work-orders" element={<WorkOrdersPage vehicles={vehicles} orders={orders} initialDraft={intakeDraft} onDraftConsumed={consumeDraft} onChanged={refresh} notify={setNotice} reportError={setError} />} />
             <Route path="/appointments" element={<AppointmentsPage vehicles={vehicles} notify={setNotice} reportError={setError} />} />
             <Route path="/inspections" element={<InspectionsPage vehicles={vehicles} orders={orders} onChanged={refresh} notify={setNotice} reportError={setError} />} />
+            <Route path="/estimates" element={<EstimatesPage vehicles={vehicles} orders={orders} notify={setNotice} reportError={setError} />} />
             <Route path="/inventory" element={<InventoryPage notify={setNotice} reportError={setError} />} />
             <Route path="/finance" element={<FinancePage vehicles={vehicles} orders={orders} notify={setNotice} reportError={setError} />} />
             <Route path="/finance/card-payment/:invoiceId" element={<CardPaymentPage reportError={setError} />} />
@@ -187,7 +196,7 @@ function App() {
             <Route path="/evaluation" element={<EvaluationPage vehicles={vehicles} orders={orders} notify={setNotice} reportError={setError} />} />
             <Route path="/settings" element={<SettingsPage user={user} onUserUpdated={setUser} notify={setNotice} reportError={setError} />} />
             <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
+          </Routes></Suspense>
         </main>
       </div>
     </div>

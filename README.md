@@ -2,7 +2,7 @@
 
 Türkçe servis anlatımlarını yapılandırılmış iş emirlerine dönüştürmek, atölyedeki servis sürecini izlemek, OBD-II kodlarını kaydetmek ve geçmiş vakalar arasında arama yapmak için geliştirilen tez uygulaması.
 
-## Mevcut uygulama (v1.2)
+## Mevcut uygulama (v1.3)
 
 - Atölye özetlerini ve iş emri dağılımını gösteren dashboard
 - Anonim kodla araç kaydı ve araç servis geçmişi
@@ -53,6 +53,11 @@ Türkçe servis anlatımlarını yapılandırılmış iş emirlerine dönüştü
 - Kontrol kapsamı, dikkat/kritik bulgu sayıları ve 0-100 araç sağlık puanı
 - Eksik kontrolü, çözülmemiş kritik bulguyu ve onaysız formu tamamlatmayan kalite kapısı
 - Kontrol kilometresini daha yüksekse araç kaydına güvenli biçimde aktarma
+- İş emrine bağlı sürümlü parça, işçilik ve diğer maliyet teklifleri
+- Süreli, yenilenebilir ve yalnızca hash'i saklanan güvenli müşteri onay bağlantısı
+- Müşterinin hesap açmadan anonim araç koduyla teklif onaylama/reddetme ekranı
+- Eski bağlantıyı yenilemede otomatik geçersiz kılma ve karar değişikliği koruması
+- Yalnızca onaylı teklifi stok yeterliliğini tekrar denetleyerek faturaya dönüştürme
 - Masaüstü ve mobil ekranlara uyumlu React arayüzü
 
 ## Başlangıç kapsamı
@@ -89,7 +94,17 @@ Windows için aynı işlemi yapan yardımcı komut:
 5. Sağlık kontrolü: http://localhost:8000/api/health
 6. Geliştirme e-posta kutusu (Mailpit): http://localhost:8026
 
-Uygulama menüsü on bölümden oluşur: **Gösterge paneli**, **Araçlar**, **İş emirleri**, **Randevu & bakım**, **Araç kontrolü**, **Stok**, **Finans**, **Akıllı asistan**, **AI deneyleri** ve **Hesap ayarları**.
+Uygulama menüsü on bir bölümden oluşur: **Gösterge paneli**, **Araçlar**, **İş emirleri**, **Randevu & bakım**, **Araç kontrolü**, **Teklifler**, **Stok**, **Finans**, **Akıllı asistan**, **AI deneyleri** ve **Hesap ayarları**.
+
+### Teklif ve müşteri onayı
+
+**Teklifler** ekranında bir iş emrine parça, işçilik ve diğer maliyet kalemleri eklenir. Ara toplam, indirim, KDV ve genel toplam fatura modülüyle aynı sunucu taraflı para hesaplama kurallarını kullanır. Aynı iş emri için yeni sürümler oluşturulabilir; sürüm numarası ve teklif geçerlilik tarihi kaydedilir. Teklif aşamasında stok düşülmez.
+
+Onaya gönderme işlemi rastgele ve tahmin edilmesi güç bir bağlantı anahtarı üretir. Anahtarın kendisi veritabanına yazılmaz; yalnızca SHA-256 özeti saklanır ve bağlantı yalnızca üretildiği anda servis ekranında gösterilir. Bağlantı yenilenirse önceki bağlantı geçersiz hale gelir. `FRONTEND_PUBLIC_URL` değeri müşteri bağlantısının temel adresini belirler.
+
+Müşteri hesap açmadan bağlantıyı açabilir; yalnızca anonim araç kodu, araç açıklaması, bildirilen servis ihtiyacı ve teklif kalemlerini görür. İsim, telefon, açık plaka veya kart bilgisi gösterilmez ve istenmez. Müşteri teklifi onaylayabilir veya reddedebilir ve isteğe bağlı not bırakabilir. Daha önce verilen karar farklı bir kararla değiştirilemez.
+
+Yalnızca onaylanmış teklif faturaya dönüştürülebilir. Dönüşüm sırasında stoklu parçalar tekrar kontrol edilir ve satılacak miktarlar veritabanı kilidi altında düşülür; stok yetersizse fatura ve stok hareketi birlikte iptal edilir. Müşteri onay ekranı ödeme almaz; ödeme süreci Finans bölümündeki ayrı test banka akışında kalır.
 
 ### Dijital araç kontrolü ve kalite kapısı
 

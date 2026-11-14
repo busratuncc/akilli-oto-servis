@@ -11,6 +11,7 @@ import {
   FlaskConical,
   CalendarDays,
   ClipboardCheck,
+  FileCheck2,
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { useI18n } from "../i18n";
@@ -21,6 +22,7 @@ const links = [
   { to: "/work-orders", label: "nav.orders", icon: ClipboardList },
   { to: "/appointments", label: "nav.appointments", icon: CalendarDays },
   { to: "/inspections", label: "nav.inspections", icon: ClipboardCheck },
+  { to: "/estimates", label: "nav.estimates", icon: FileCheck2 },
   { to: "/inventory", label: "nav.inventory", icon: Warehouse },
   { to: "/finance", label: "nav.finance", icon: ReceiptText },
   { to: "/assistant", label: "nav.assistant", icon: Bot },

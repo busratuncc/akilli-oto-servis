@@ -34,6 +34,9 @@ import type {
   InspectionCondition,
   InspectionReport,
   InspectionStatus,
+  Estimate,
+  EstimateSendResponse,
+  PublicEstimate,
 } from "./types";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000/api";
@@ -285,6 +288,39 @@ export const api = {
   }) => request<InspectionReport>(`/inspections/${id}`, {
     method: "PATCH",
     body: JSON.stringify(payload),
+  }),
+  listEstimates: () => request<Estimate[]>("/estimates"),
+  createEstimate: (workOrderId: string, payload: {
+    line_items: InvoiceCreatePayload["line_items"];
+    discount_amount: string;
+    tax_rate: string;
+    notes: string | null;
+    valid_until: string;
+  }) => request<Estimate>(`/work-orders/${workOrderId}/estimates`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  }),
+  sendEstimate: (id: string) => request<EstimateSendResponse>(`/estimates/${id}/send`, {
+    method: "POST",
+  }),
+  convertEstimateToInvoice: (id: string, dueDate: string | null) =>
+    request<Invoice>(`/estimates/${id}/invoice`, {
+      method: "POST",
+      body: JSON.stringify({ due_date: dueDate }),
+    }),
+  publicEstimateDetails: (id: string, token: string) =>
+    request<PublicEstimate>(`/public/estimates/${id}/details`, {
+      method: "POST",
+      body: JSON.stringify({ token }),
+    }),
+  publicEstimateDecision: (
+    id: string,
+    token: string,
+    decision: "approved" | "rejected",
+    note: string | null,
+  ) => request<PublicEstimate>(`/public/estimates/${id}/decision`, {
+    method: "POST",
+    body: JSON.stringify({ token, decision, note }),
   }),
 };
 
