@@ -31,6 +31,9 @@ import type {
   MaintenanceReminder,
   ReminderStatus,
   ScheduleSummary,
+  InspectionCondition,
+  InspectionReport,
+  InspectionStatus,
 } from "./types";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000/api";
@@ -263,5 +266,25 @@ export const api = {
     body: JSON.stringify(payload),
   }),
   scheduleSummary: () => request<ScheduleSummary>("/schedule/summary"),
+  listInspections: () => request<InspectionReport[]>("/inspections"),
+  createInspection: (workOrderId: string) =>
+    request<InspectionReport>(`/work-orders/${workOrderId}/inspection`, { method: "POST" }),
+  updateInspection: (id: string, payload: {
+    status?: InspectionStatus;
+    odometer: number | null;
+    technician_name: string | null;
+    notes: string | null;
+    mechanic_approved: boolean;
+    items: Array<{
+      item_key: string;
+      condition: InspectionCondition;
+      measurement: string | null;
+      notes: string | null;
+      resolved: boolean;
+    }>;
+  }) => request<InspectionReport>(`/inspections/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  }),
 };
 

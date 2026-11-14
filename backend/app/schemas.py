@@ -27,6 +27,8 @@ AppointmentStatus = Literal[
 ]
 ReminderStatus = Literal["pending", "completed", "dismissed"]
 ReminderDueState = Literal["overdue", "due_soon", "upcoming", "completed", "dismissed"]
+InspectionStatus = Literal["draft", "in_progress", "completed"]
+InspectionCondition = Literal["not_checked", "good", "attention", "critical"]
 Language = Literal["tr", "en"]
 
 
@@ -310,6 +312,73 @@ class ScheduleSummary(BaseModel):
     active_appointments: int
     overdue_reminders: int
     due_soon_reminders: int
+
+
+class InspectionTemplateItemRead(BaseModel):
+    category: str
+    item_key: str
+    label: str
+    position: int
+
+
+class InspectionItemUpdate(BaseModel):
+    item_key: str = Field(min_length=2, max_length=80)
+    condition: InspectionCondition
+    measurement: str | None = Field(default=None, max_length=80)
+    notes: str | None = Field(default=None, max_length=1_000)
+    resolved: bool = False
+
+
+class InspectionReportUpdate(BaseModel):
+    status: InspectionStatus | None = None
+    odometer: int | None = Field(default=None, ge=0, le=5_000_000)
+    technician_name: str | None = Field(default=None, max_length=120)
+    notes: str | None = Field(default=None, max_length=2_000)
+    mechanic_approved: bool | None = None
+    items: list[InspectionItemUpdate] | None = None
+
+    @field_validator("items")
+    @classmethod
+    def unique_item_keys(
+        cls, value: list[InspectionItemUpdate] | None
+    ) -> list[InspectionItemUpdate] | None:
+        if value is not None and len({item.item_key for item in value}) != len(value):
+            raise ValueError("Aynı kontrol maddesi birden fazla kez gönderilemez")
+        return value
+
+
+class InspectionItemRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    category: str
+    item_key: str
+    label: str
+    condition: InspectionCondition
+    measurement: str | None
+    notes: str | None
+    resolved: bool
+    position: int
+
+
+class InspectionReportRead(BaseModel):
+    id: uuid.UUID
+    work_order_id: uuid.UUID
+    status: InspectionStatus
+    odometer: int | None
+    technician_name: str | None
+    notes: str | None
+    mechanic_approved: bool
+    completed_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+    items: list[InspectionItemRead]
+    health_score: int
+    checked_count: int
+    total_count: int
+    attention_count: int
+    critical_count: int
+    unresolved_critical_count: int
 
 
 class ExtractionRequest(BaseModel):

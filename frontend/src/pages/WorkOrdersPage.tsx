@@ -4,11 +4,13 @@ import {
   CheckCircle2,
   ChevronRight,
   ClipboardList,
+  ClipboardCheck,
   Plus,
   Search,
   ShieldCheck,
   Wrench,
 } from "lucide-react";
+import { Link } from "react-router-dom";
 
 import { api } from "../api";
 import { StatusBadge } from "../components/StatusBadge";
@@ -207,6 +209,7 @@ export function WorkOrdersPage({
                 {selectedOrder.result && <div className="detail-block"><span>{t("orders.resultShort")}</span><p>{selectedOrder.result}</p></div>}
                 <div className="dtc-list">{selectedOrder.dtc_codes.map((item) => <span className="dtc-chip" title={item.description ?? undefined} key={item.code}>{item.code}</span>)}{selectedOrder.dtc_codes.length === 0 && <span className="muted-text">{t("orders.noDtc")}</span>}</div>
                 <label className="detail-control">{t("orders.status")}<select disabled={updatingId === selectedOrder.id} value={selectedOrder.status} onChange={(event) => void updateOrder(selectedOrder.id, { status: event.target.value }, t("orders.statusUpdated"))}>{WORK_ORDER_STATUSES.map((status) => <option value={status} key={status}>{t(`status.${status}`)}</option>)}</select></label>
+                <Link className="ghost-button full-button" to={`/inspections?workOrder=${selectedOrder.id}`}><ClipboardCheck size={17} /> {t("orders.openInspection")}</Link>
                 {!selectedOrder.approved_by_mechanic && <button className="secondary-button full-button" disabled={updatingId === selectedOrder.id} onClick={() => void updateOrder(selectedOrder.id, { approved_by_mechanic: true }, t("orders.approvalSet"))}><CheckCircle2 size={17} /> {t("orders.approve")}</button>}
               </>
             );

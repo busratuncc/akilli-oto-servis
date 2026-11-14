@@ -14,6 +14,7 @@ import { InventoryPage } from "./pages/InventoryPage";
 import { TestBank3DPage } from "./pages/TestBank3DPage";
 import { EvaluationPage } from "./pages/EvaluationPage";
 import { AppointmentsPage } from "./pages/AppointmentsPage";
+import { InspectionsPage } from "./pages/InspectionsPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import type { IntakeDraft } from "./pages/WorkOrdersPage";
 import { WorkOrdersPage } from "./pages/WorkOrdersPage";
@@ -26,6 +27,7 @@ const PAGE_TITLE_KEYS: Record<string, string> = {
   "/vehicles": "nav.vehicles",
   "/work-orders": "nav.orders",
   "/appointments": "nav.appointments",
+  "/inspections": "nav.inspections",
   "/inventory": "nav.inventory",
   "/finance": "nav.finance",
   "/assistant": "nav.assistant",
@@ -177,6 +179,7 @@ function App() {
             <Route path="/vehicles" element={<VehiclesPage vehicles={vehicles} orders={orders} onChanged={refresh} notify={setNotice} reportError={setError} />} />
             <Route path="/work-orders" element={<WorkOrdersPage vehicles={vehicles} orders={orders} initialDraft={intakeDraft} onDraftConsumed={consumeDraft} onChanged={refresh} notify={setNotice} reportError={setError} />} />
             <Route path="/appointments" element={<AppointmentsPage vehicles={vehicles} notify={setNotice} reportError={setError} />} />
+            <Route path="/inspections" element={<InspectionsPage vehicles={vehicles} orders={orders} onChanged={refresh} notify={setNotice} reportError={setError} />} />
             <Route path="/inventory" element={<InventoryPage notify={setNotice} reportError={setError} />} />
             <Route path="/finance" element={<FinancePage vehicles={vehicles} orders={orders} notify={setNotice} reportError={setError} />} />
             <Route path="/finance/card-payment/:invoiceId" element={<CardPaymentPage reportError={setError} />} />

@@ -2,7 +2,7 @@
 
 Türkçe servis anlatımlarını yapılandırılmış iş emirlerine dönüştürmek, atölyedeki servis sürecini izlemek, OBD-II kodlarını kaydetmek ve geçmiş vakalar arasında arama yapmak için geliştirilen tez uygulaması.
 
-## Mevcut uygulama (v1.1)
+## Mevcut uygulama (v1.2)
 
 - Atölye özetlerini ve iş emri dağılımını gösteren dashboard
 - Anonim kodla araç kaydı ve araç servis geçmişi
@@ -47,6 +47,12 @@ Türkçe servis anlatımlarını yapılandırılmış iş emirlerine dönüştü
 - Tarih ve/veya araç kilometresiyle çalışan bakım hatırlatmaları
 - Geciken ve yaklaşan bakımları önceliklendiren operasyon özeti
 - Müşteri adı veya telefonu tutmadan anonim araç koduna bağlı randevu mimarisi
+- İş emrine bağlı 22 maddelik dijital araç kabul ve kontrol formu
+- Güvenlik, lastik, sıvı, elektrik ve gövde kategorilerinde standart değerlendirme
+- İyi, dikkat, kritik ve bekliyor durumlarıyla ölçüm ve bulgu kaydı
+- Kontrol kapsamı, dikkat/kritik bulgu sayıları ve 0-100 araç sağlık puanı
+- Eksik kontrolü, çözülmemiş kritik bulguyu ve onaysız formu tamamlatmayan kalite kapısı
+- Kontrol kilometresini daha yüksekse araç kaydına güvenli biçimde aktarma
 - Masaüstü ve mobil ekranlara uyumlu React arayüzü
 
 ## Başlangıç kapsamı
@@ -83,7 +89,15 @@ Windows için aynı işlemi yapan yardımcı komut:
 5. Sağlık kontrolü: http://localhost:8000/api/health
 6. Geliştirme e-posta kutusu (Mailpit): http://localhost:8026
 
-Uygulama menüsü dokuz bölümden oluşur: **Gösterge paneli**, **Araçlar**, **İş emirleri**, **Randevu & bakım**, **Stok**, **Finans**, **Akıllı asistan**, **AI deneyleri** ve **Hesap ayarları**.
+Uygulama menüsü on bölümden oluşur: **Gösterge paneli**, **Araçlar**, **İş emirleri**, **Randevu & bakım**, **Araç kontrolü**, **Stok**, **Finans**, **Akıllı asistan**, **AI deneyleri** ve **Hesap ayarları**.
+
+### Dijital araç kontrolü ve kalite kapısı
+
+Her iş emri için tek bir dijital araç kontrol formu açılabilir. Form; fren ve güvenlik, lastikler, sıvılar ve kaçaklar, elektrik ve aydınlatma, gövde ve görsel kontrol olmak üzere beş kategoride 22 standart madde içerir. Her madde **iyi**, **dikkat**, **kritik** veya **bekliyor** olarak işaretlenebilir; ölçüm değeri ve bulgu notu ayrıca saklanır.
+
+Araç sağlık puanı yalnızca gerçekten kontrol edilmiş maddeler üzerinden sunucuda hesaplanır: iyi durum 100, dikkat durumu 55, kritik durum 0 puan ağırlığı taşır. Bu puan kesin teknik teşhis değildir; atölyenin standart kabul kontrolünü tutarlı ve ölçülebilir hale getiren bir kalite göstergesidir.
+
+Formun tamamlanması için bütün maddelerin değerlendirilmesi, kritik bulguların giderildi veya usta tarafından ele alındı olarak işaretlenmesi ve usta onayı gerekir. Aynı doğrulamalar arayüzden bağımsız olarak API katmanında da uygulanır. Kontrol sırasında girilen kilometre aracın mevcut kilometresinden yüksekse araç kaydı güncellenir. Form oluşturma, taslak kaydetme ve tamamlama hareketleri sağlık puanı ve kritik bulgu sayısıyla birlikte denetim kaydına yazılır.
 
 ### Randevu ve bakım planı
 

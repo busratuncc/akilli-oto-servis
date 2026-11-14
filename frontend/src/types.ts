@@ -389,3 +389,38 @@ export type ScheduleSummary = {
   due_soon_reminders: number;
 };
 
+export type InspectionStatus = "draft" | "in_progress" | "completed";
+export type InspectionCondition = "not_checked" | "good" | "attention" | "critical";
+
+export type InspectionItem = {
+  id: string;
+  category: string;
+  item_key: string;
+  label: string;
+  condition: InspectionCondition;
+  measurement: string | null;
+  notes: string | null;
+  resolved: boolean;
+  position: number;
+};
+
+export type InspectionReport = {
+  id: string;
+  work_order_id: string;
+  status: InspectionStatus;
+  odometer: number | null;
+  technician_name: string | null;
+  notes: string | null;
+  mechanic_approved: boolean;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+  items: InspectionItem[];
+  health_score: number;
+  checked_count: number;
+  total_count: number;
+  attention_count: number;
+  critical_count: number;
+  unresolved_critical_count: number;
+};
+

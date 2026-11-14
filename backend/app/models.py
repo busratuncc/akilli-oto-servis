@@ -67,6 +67,9 @@ class WorkOrder(Base):
     invoice: Mapped["Invoice | None"] = relationship(
         back_populates="work_order", cascade="all, delete-orphan", uselist=False
     )
+    inspection: Mapped["InspectionReport | None"] = relationship(
+        back_populates="work_order", cascade="all, delete-orphan", uselist=False
+    )
 
 
 class DtcCode(Base):
@@ -192,6 +195,58 @@ class MaintenanceReminder(Base):
     )
 
     vehicle: Mapped[Vehicle] = relationship(back_populates="maintenance_reminders")
+
+
+class InspectionReport(Base):
+    __tablename__ = "inspection_reports"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    owner_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    work_order_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("work_orders.id", ondelete="CASCADE"),
+        unique=True,
+        index=True,
+    )
+    status: Mapped[str] = mapped_column(String(24), default="draft", index=True)
+    odometer: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    technician_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    mechanic_approved: Mapped[bool] = mapped_column(Boolean, default=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    work_order: Mapped[WorkOrder] = relationship(back_populates="inspection")
+    items: Mapped[list["InspectionItem"]] = relationship(
+        back_populates="report", cascade="all, delete-orphan", order_by="InspectionItem.position"
+    )
+
+
+class InspectionItem(Base):
+    __tablename__ = "inspection_items"
+    __table_args__ = (
+        UniqueConstraint("report_id", "item_key", name="uq_inspection_items_report_key"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    report_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("inspection_reports.id", ondelete="CASCADE"), index=True
+    )
+    category: Mapped[str] = mapped_column(String(40), index=True)
+    item_key: Mapped[str] = mapped_column(String(80))
+    label: Mapped[str] = mapped_column(String(160))
+    condition: Mapped[str] = mapped_column(String(24), default="not_checked", index=True)
+    measurement: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    resolved: Mapped[bool] = mapped_column(Boolean, default=False)
+    position: Mapped[int] = mapped_column(Integer)
+
+    report: Mapped[InspectionReport] = relationship(back_populates="items")
 
 
 class Invoice(Base):

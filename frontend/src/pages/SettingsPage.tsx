@@ -48,6 +48,8 @@ const EVENT_LABEL_KEYS: Record<string, string> = {
   "appointment.updated": "settings.eventAppointmentUpdated",
   "maintenance_reminder.created": "settings.eventReminderCreated",
   "maintenance_reminder.updated": "settings.eventReminderUpdated",
+  "inspection.created": "settings.eventInspectionCreated",
+  "inspection.updated": "settings.eventInspectionUpdated",
 };
 
 export function SettingsPage({ user, onUserUpdated, notify, reportError }: Props) {

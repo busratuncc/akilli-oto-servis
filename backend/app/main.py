@@ -11,7 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 from starlette.concurrency import run_in_threadpool
 
-from app import auth, evaluation, finance, inventory, ml, models, schemas, scheduling, services, test_bank
+from app import auth, evaluation, finance, inspection, inventory, ml, models, schemas, scheduling, services, test_bank
 from app.config import settings
 from app.database import SessionLocal, get_db
 
@@ -209,6 +209,45 @@ def reminder_read(reminder: models.MaintenanceReminder) -> schemas.MaintenanceRe
         completed_at=reminder.completed_at,
         created_at=reminder.created_at,
         updated_at=reminder.updated_at,
+    )
+
+
+def get_inspection_or_404(
+    inspection_id: uuid.UUID,
+    user_id: uuid.UUID,
+    db: Session,
+) -> models.InspectionReport:
+    report = db.scalar(
+        select(models.InspectionReport)
+        .options(
+            selectinload(models.InspectionReport.items),
+            selectinload(models.InspectionReport.work_order).selectinload(models.WorkOrder.vehicle),
+        )
+        .where(
+            models.InspectionReport.id == inspection_id,
+            models.InspectionReport.owner_id == user_id,
+        )
+    )
+    if report is None:
+        raise HTTPException(status_code=404, detail="Araç kontrol formu bulunamadı")
+    return report
+
+
+def inspection_read(report: models.InspectionReport) -> schemas.InspectionReportRead:
+    summary = inspection.summarize(report.items)
+    return schemas.InspectionReportRead(
+        id=report.id,
+        work_order_id=report.work_order_id,
+        status=report.status,
+        odometer=report.odometer,
+        technician_name=report.technician_name,
+        notes=report.notes,
+        mechanic_approved=report.mechanic_approved,
+        completed_at=report.completed_at,
+        created_at=report.created_at,
+        updated_at=report.updated_at,
+        items=[schemas.InspectionItemRead.model_validate(item) for item in report.items],
+        **summary,
     )
 
 
@@ -1910,4 +1949,189 @@ def schedule_summary(request: Request, db: Session = Depends(get_db)) -> schemas
         overdue_reminders=states.count("overdue"),
         due_soon_reminders=states.count("due_soon"),
     )
+
+
+@app.get(
+    f"{settings.api_prefix}/inspection-template",
+    response_model=list[schemas.InspectionTemplateItemRead],
+)
+def inspection_template() -> list[schemas.InspectionTemplateItemRead]:
+    return [
+        schemas.InspectionTemplateItemRead(
+            category=category,
+            item_key=item_key,
+            label=label,
+            position=position,
+        )
+        for position, (category, item_key, label) in enumerate(inspection.TEMPLATE_ITEMS, start=1)
+    ]
+
+
+@app.post(
+    f"{settings.api_prefix}/work-orders/{{work_order_id}}/inspection",
+    response_model=schemas.InspectionReportRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_inspection_report(
+    work_order_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> schemas.InspectionReportRead:
+    work_order = get_work_order_or_404(work_order_id, request.state.user.id, db)
+    existing_id = db.scalar(
+        select(models.InspectionReport.id).where(
+            models.InspectionReport.work_order_id == work_order.id,
+            models.InspectionReport.owner_id == request.state.user.id,
+        )
+    )
+    if existing_id is not None:
+        raise HTTPException(status_code=409, detail="Bu iş emri için kontrol formu zaten var")
+    report = models.InspectionReport(
+        owner_id=request.state.user.id,
+        work_order_id=work_order.id,
+        odometer=work_order.vehicle.mileage,
+        items=[
+            models.InspectionItem(
+                category=category,
+                item_key=item_key,
+                label=label,
+                position=position,
+            )
+            for position, (category, item_key, label) in enumerate(
+                inspection.TEMPLATE_ITEMS, start=1
+            )
+        ],
+    )
+    db.add(report)
+    db.flush()
+    auth.add_audit_event(
+        db,
+        request.state.user.id,
+        "inspection.created",
+        entity_type="inspection",
+        entity_id=report.id,
+        event_data={"work_order_id": str(work_order.id), "item_count": len(report.items)},
+    )
+    db.commit()
+    db.refresh(report)
+    return inspection_read(report)
+
+
+@app.get(
+    f"{settings.api_prefix}/inspections",
+    response_model=list[schemas.InspectionReportRead],
+)
+def list_inspection_reports(
+    request: Request,
+    db: Session = Depends(get_db),
+) -> list[schemas.InspectionReportRead]:
+    reports = list(
+        db.scalars(
+            select(models.InspectionReport)
+            .options(selectinload(models.InspectionReport.items))
+            .where(models.InspectionReport.owner_id == request.state.user.id)
+            .order_by(models.InspectionReport.updated_at.desc())
+        ).all()
+    )
+    return [inspection_read(report) for report in reports]
+
+
+@app.get(
+    f"{settings.api_prefix}/work-orders/{{work_order_id}}/inspection",
+    response_model=schemas.InspectionReportRead,
+)
+def get_work_order_inspection(
+    work_order_id: uuid.UUID,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> schemas.InspectionReportRead:
+    report = db.scalar(
+        select(models.InspectionReport)
+        .options(selectinload(models.InspectionReport.items))
+        .where(
+            models.InspectionReport.work_order_id == work_order_id,
+            models.InspectionReport.owner_id == request.state.user.id,
+        )
+    )
+    if report is None:
+        raise HTTPException(status_code=404, detail="Bu iş emri için kontrol formu bulunamadı")
+    return inspection_read(report)
+
+
+@app.patch(
+    f"{settings.api_prefix}/inspections/{{inspection_id}}",
+    response_model=schemas.InspectionReportRead,
+)
+def update_inspection_report(
+    inspection_id: uuid.UUID,
+    payload: schemas.InspectionReportUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> schemas.InspectionReportRead:
+    report = get_inspection_or_404(inspection_id, request.state.user.id, db)
+    was_completed = report.status == "completed"
+    changes = payload.model_dump(exclude_unset=True, exclude={"items"})
+    if "status" in changes and changes["status"] is None:
+        raise HTTPException(status_code=422, detail="Kontrol formu durumu boş bırakılamaz")
+    requested_status = changes.pop("status", None)
+    if "technician_name" in changes and changes["technician_name"]:
+        changes["technician_name"] = changes["technician_name"].strip() or None
+    for field, value in changes.items():
+        setattr(report, field, value)
+
+    if payload.items is not None:
+        item_map = {item.item_key: item for item in report.items}
+        unknown_keys = sorted({item.item_key for item in payload.items} - set(item_map))
+        if unknown_keys:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Bilinmeyen kontrol maddeleri: {', '.join(unknown_keys)}",
+            )
+        for item_update in payload.items:
+            item = item_map[item_update.item_key]
+            item.condition = item_update.condition
+            item.measurement = item_update.measurement.strip() if item_update.measurement else None
+            item.notes = item_update.notes.strip() if item_update.notes else None
+            item.resolved = item_update.resolved if item_update.condition == "critical" else False
+        if requested_status != "completed":
+            if report.status == "completed":
+                report.mechanic_approved = False
+            report.status = "in_progress"
+            report.completed_at = None
+
+    if requested_status == "completed":
+        errors = inspection.completion_errors(report.items, report.mechanic_approved)
+        if errors:
+            raise HTTPException(status_code=409, detail=" · ".join(errors))
+        report.status = "completed"
+        report.completed_at = datetime.now(timezone.utc)
+    elif requested_status is not None:
+        report.status = requested_status
+        report.completed_at = None
+    elif was_completed and payload.model_fields_set:
+        report.status = "in_progress"
+        report.completed_at = None
+
+    vehicle = report.work_order.vehicle
+    if report.odometer is not None and (vehicle.mileage is None or report.odometer > vehicle.mileage):
+        vehicle.mileage = report.odometer
+
+    db.flush()
+    summary = inspection.summarize(report.items)
+    auth.add_audit_event(
+        db,
+        request.state.user.id,
+        "inspection.updated",
+        entity_type="inspection",
+        entity_id=report.id,
+        event_data={
+            "fields": sorted(payload.model_fields_set),
+            "status": report.status,
+            "health_score": summary["health_score"],
+            "critical_count": summary["critical_count"],
+        },
+    )
+    db.commit()
+    db.refresh(report)
+    return inspection_read(report)
 
